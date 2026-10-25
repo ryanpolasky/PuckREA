@@ -14,7 +14,7 @@ export function makeMaterial(opts = {}) {
   };
 }
 
-export function buildGLB(materials, prims, { boards = [], textures = [], spectators = [], lights = [] } = {}) {
+export function buildGLB(materials, prims, { boards = [], nightBeams = [], textures = [], spectators = [], lights = [] } = {}) {
   const binParts = [];
   const bufferViews = [];
   const accessors = [];
@@ -129,6 +129,21 @@ export function buildGLB(materials, prims, { boards = [], textures = [], spectat
     nodes[0].children.push(node);
   }
 
+  if (nightBeams.length) {
+    const mesh = meshes.length;
+    meshes.push({ name: 'REA_NightBeam', primitives: buildPrimitives(nightBeams[0].prims) });
+    for (const beam of nightBeams) {
+      const node = nodes.length;
+      nodes.push({
+        name: beam.name,
+        mesh,
+        translation: beam.translation,
+        scale: [0, 0, 0],
+      });
+      nodes[0].children.push(node);
+    }
+  }
+
   if (spectators.length) {
     const specParentIdx = nodes.length;
     const specChildren = [];
@@ -179,6 +194,7 @@ export function buildGLB(materials, prims, { boards = [], textures = [], spectat
 
   const extensionsUsed = [];
   if (gltfLights.length) extensionsUsed.push('KHR_lights_punctual');
+  if (materials.some((m) => m.unlit)) extensionsUsed.push('KHR_materials_unlit');
 
   const json = {
     asset: { version: '2.0', generator: 'puck-rea-arena' },
@@ -203,6 +219,7 @@ export function buildGLB(materials, prims, { boards = [], textures = [], spectat
         out.emissiveTexture = { index: m.emissiveTexture };
         if (!out.emissiveFactor) out.emissiveFactor = [1, 1, 1];
       }
+      if (m.unlit) out.extensions = { KHR_materials_unlit: {} };
       if (m.alphaMode !== 'OPAQUE') out.alphaMode = m.alphaMode;
       if (m.alphaCutoff !== null) out.alphaCutoff = m.alphaCutoff;
       return out;

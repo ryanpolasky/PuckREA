@@ -2,15 +2,16 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { buildArena } from './src/arena.js';
 import { buildGLB } from './src/gltf.js';
 
-const { materials, prims, boards, textures, spectators, lights, suitePrims, suiteTriangles, crowdCounts, crowdDensity } = buildArena();
-const allPrims = [...prims, ...boards.flatMap((board) => board.prims)];
+const { materials, prims, boards, nightBeams, textures, spectators, lights, suitePrims, suiteTriangles, crowdCounts, crowdDensity } = buildArena();
+const nightBeamPrims = nightBeams[0]?.prims ?? [];
+const allPrims = [...prims, ...boards.flatMap((board) => board.prims), ...nightBeamPrims];
 let tris = 0, verts = 0;
 for (const p of allPrims) { tris += p.indices.length / 3; verts += p.positions.length / 3; }
 const boardParts = boards.map((board) => `${board.name}=${board.prims.length}`).join(', ');
-console.log(`parts: ${allPrims.length} (${prims.length - suitePrims.length} arena + ${suitePrims.length} suite + ${boardParts}), verts: ${verts}, tris: ${tris}, textures: ${textures.length}, spectators: ${spectators.length}`);
+console.log(`parts: ${allPrims.length} (${prims.length - suitePrims.length} arena + ${suitePrims.length} suite + ${boardParts} + nightBeam=24 tris × ${nightBeams.length} nodes), verts: ${verts}, tris: ${tris}, textures: ${textures.length}, spectators: ${spectators.length}`);
 console.log(`suites: ${suiteTriangles} triangles; crowd: lower=${crowdCounts.lower}, upper=${crowdCounts.upper}, suites=${crowdCounts.suite}, total=${spectators.length}, lower-row density=${crowdDensity.toFixed(3)}`);
 
-const glb = buildGLB(materials, prims, { boards, textures, spectators, lights });
+const glb = buildGLB(materials, prims, { boards, nightBeams, textures, spectators, lights });
 const outDir = 'dist/Ralph Engelstad Arena';
 mkdirSync(outDir, { recursive: true });
 writeFileSync(`${outDir}/ralph_engelstad.glb`, glb);

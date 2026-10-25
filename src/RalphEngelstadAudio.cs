@@ -62,6 +62,19 @@ namespace RalphEngelstadAudio
             public TMP_Text Period;
         }
 
+        private sealed class NightLightState
+        {
+            public Light Light;
+            public float Intensity;
+        }
+
+        private sealed class NightEmissionState
+        {
+            public Material Material;
+            public string Property;
+            public Color Color;
+        }
+
         private AudioClip _goalHorn;
         private AudioClip _standUp;
         private AudioClip _fightOn;
@@ -81,6 +94,10 @@ namespace RalphEngelstadAudio
         private readonly List<Scoreboard> _hiddenVanillaScoreboards = new List<Scoreboard>();
         private readonly List<GameObject> _liveScoreRoots = new List<GameObject>();
         private readonly List<LiveScoreTextSet> _liveScoreTexts = new List<LiveScoreTextSet>();
+        private readonly List<NightLightState> _nightLights = new List<NightLightState>();
+        private readonly List<NightEmissionState> _nightEmissions = new List<NightEmissionState>();
+        private readonly List<Transform> _nightBeams = new List<Transform>();
+        private readonly List<Light> _nightSpotlights = new List<Light>();
 
         private float _targetVolume = 0f;
         private float _currentVolume = 0f;
@@ -88,6 +105,12 @@ namespace RalphEngelstadAudio
         private int _goalCounter = 0;
         private float _followUpTimer = -1f;
         private GamePhase _lastPhase = GamePhase.None;
+        private static bool _nightMode = false;
+        private float _nightBlend;
+        private float _nightTargetBlend;
+        private float _originalAmbientIntensity;
+        private Color _originalAmbientLight;
+        private bool _nightOriginalsCaptured;
 
         private void Awake()
         {
@@ -117,6 +140,8 @@ namespace RalphEngelstadAudio
             RestoreBarrierGlass();
             RestoreVanillaScoreboards();
             DestroyLiveScoreboards();
+            RestoreNightMode();
+            DestroyNightModeRig();
         }
 
         private static string FindAudioDirectory()
@@ -178,6 +203,8 @@ namespace RalphEngelstadAudio
             {
                 if (_arenaBound)
                 {
+                    RestoreNightMode();
+                    DestroyNightModeRig();
                     RestoreVanillaHorns();
                     RestoreBarrierGlass();
                     RestoreVanillaScoreboards();
@@ -191,6 +218,8 @@ namespace RalphEngelstadAudio
 
             if (_arenaBound && _arenaRoot != found)
             {
+                RestoreNightMode();
+                DestroyNightModeRig();
                 RestoreVanillaHorns();
                 RestoreBarrierGlass();
                 RestoreVanillaScoreboards();
@@ -212,6 +241,7 @@ namespace RalphEngelstadAudio
             _arenaRoot = found;
             _arenaBound = true;
             ApplyBoardState();
+            CaptureNightModeState();
             CreateLiveScoreboards();
             HideVanillaScoreboards();
             UpdateLiveScoreFromManager();
@@ -276,6 +306,170 @@ namespace RalphEngelstadAudio
                 Debug.LogWarning("[RalphEngelstadAudio] Could not find both jumbotron board nodes");
                 _boardNodesWarningLogged = true;
             }
+        }
+
+        private void CaptureNightModeState()
+        {
+            if (_nightOriginalsCaptured) RestoreNightMode();
+            DestroyNightModeRig();
+            _nightMode = false;
+            _nightBlend = 0f;
+            _nightTargetBlend = 0f;
+            _nightLights.Clear();
+            _nightEmissions.Clear();
+            _nightBeams.Clear();
+            _nightSpotlights.Clear();
+            _originalAmbientIntensity = RenderSettings.ambientIntensity;
+            _originalAmbientLight = RenderSettings.ambientLight;
+            _nightOriginalsCaptured = true;
+
+            Light[] lights = UnityEngine.Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (Light light in lights)
+            {
+                if (light == null) continue;
+                bool underArena = light.transform.IsChildOf(_arenaRoot.transform);
+                bool gameDirectional = light.type == LightType.Directional && light.enabled;
+                if (underArena || gameDirectional)
+                    _nightLights.Add(new NightLightState { Light = light, Intensity = light.intensity });
+            }
+
+            foreach (Renderer renderer in _arenaRoot.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null) continue;
+                foreach (Material material in renderer.sharedMaterials)
+                {
+                    if (material == null || !material.name.StartsWith("roofFloodGlow", StringComparison.OrdinalIgnoreCase)) continue;
+                    string property = material.HasProperty("_EmissionColor") ? "_EmissionColor"
+                        : material.HasProperty("_EmissiveColor") ? "_EmissiveColor" : null;
+                    if (property == null || _nightEmissions.Exists(state => state.Material == material)) continue;
+                    _nightEmissions.Add(new NightEmissionState
+                    {
+                        Material = material,
+                        Property = property,
+                        Color = material.GetColor(property),
+                    });
+                }
+            }
+
+            foreach (Transform node in _arenaRoot.GetComponentsInChildren<Transform>(true))
+            {
+                if (node == null || !node.name.StartsWith("REA_NightBeam_", StringComparison.Ordinal)) continue;
+                _nightBeams.Add(node);
+                node.localScale = Vector3.zero;
+                GameObject spotObject = new GameObject("REA_NightSpotlight");
+                spotObject.layer = node.gameObject.layer;
+                spotObject.transform.SetParent(node, false);
+                spotObject.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                Light spotlight = spotObject.AddComponent<Light>();
+                spotlight.type = LightType.Spot;
+                spotlight.color = new Color(0.15f, 1f, 0.35f);
+                spotlight.intensity = 8f;
+                spotlight.range = 40f;
+                spotlight.spotAngle = 22f;
+                spotlight.renderMode = LightRenderMode.ForcePixel;
+                spotlight.shadows = LightShadows.None;
+                spotlight.enabled = false;
+                _nightSpotlights.Add(spotlight);
+            }
+        }
+
+        private void SetNightMode(bool enabled)
+        {
+            _nightMode = enabled;
+            _nightTargetBlend = enabled ? 1f : 0f;
+            for (int i = 0; i < _nightBeams.Count; i++)
+            {
+                Transform beam = _nightBeams[i];
+                if (beam != null) beam.localScale = enabled ? Vector3.one : Vector3.zero;
+            }
+            foreach (Light spotlight in _nightSpotlights)
+            {
+                if (spotlight != null) spotlight.enabled = enabled;
+            }
+        }
+
+        private void UpdateNightModeFade()
+        {
+            if (!_nightOriginalsCaptured) return;
+            _nightBlend = Mathf.MoveTowards(_nightBlend, _nightTargetBlend, Time.deltaTime / 1.5f);
+            float lightScale = Mathf.Lerp(1f, 0.12f, _nightBlend);
+            foreach (NightLightState state in _nightLights)
+            {
+                if (state.Light != null) state.Light.intensity = state.Intensity * lightScale;
+            }
+            foreach (NightEmissionState state in _nightEmissions)
+            {
+                if (state.Material != null) state.Material.SetColor(state.Property, state.Color * lightScale);
+            }
+            float ambientScale = Mathf.Lerp(1f, 0.25f, _nightBlend);
+            RenderSettings.ambientIntensity = _originalAmbientIntensity * ambientScale;
+            RenderSettings.ambientLight = _originalAmbientLight * ambientScale;
+        }
+
+        private void UpdateNightBeamSweep()
+        {
+            float time = Time.time;
+            for (int i = 0; i < _nightBeams.Count; i++)
+            {
+                Transform beam = _nightBeams[i];
+                if (beam == null) continue;
+                float phase = i * 1.0472f;
+                float period = 6.5f + i * 0.35f;
+                float frequency = 2f * Mathf.PI / period;
+                bool endSpot = i >= 4;
+                float xSign = i < 2 ? -1f : 1f;
+                float zSign = i == 0 || i == 2 || i == 4 ? -1f : 1f;
+                Vector3 target = new Vector3(
+                    endSpot
+                        ? 1.5f * Mathf.Sin(time * frequency + phase)
+                        : xSign * (6f + 1.5f * Mathf.Sin(time * frequency + phase)),
+                    0.05f,
+                    zSign * (endSpot
+                        ? 12f + 2f * Mathf.Sin(time * frequency / 1.23f + phase * 1.4f)
+                        : 20f + 3.5f * Mathf.Sin(time * frequency / 1.23f + phase * 1.4f)));
+                beam.rotation = Quaternion.FromToRotation(Vector3.down, target - beam.position);
+            }
+        }
+
+        private void RestoreNightMode()
+        {
+            if (_nightOriginalsCaptured)
+            {
+                foreach (NightLightState state in _nightLights)
+                {
+                    if (state.Light != null) state.Light.intensity = state.Intensity;
+                }
+                foreach (NightEmissionState state in _nightEmissions)
+                {
+                    if (state.Material != null) state.Material.SetColor(state.Property, state.Color);
+                }
+                RenderSettings.ambientIntensity = _originalAmbientIntensity;
+                RenderSettings.ambientLight = _originalAmbientLight;
+                _nightOriginalsCaptured = false;
+            }
+            _nightMode = false;
+            _nightBlend = 0f;
+            _nightTargetBlend = 0f;
+            foreach (Transform beam in _nightBeams)
+            {
+                if (beam != null) beam.localScale = Vector3.zero;
+            }
+            foreach (Light spotlight in _nightSpotlights)
+            {
+                if (spotlight != null) spotlight.enabled = false;
+            }
+        }
+
+        private void DestroyNightModeRig()
+        {
+            foreach (Light spotlight in _nightSpotlights)
+            {
+                if (spotlight != null) UnityEngine.Object.Destroy(spotlight.gameObject);
+            }
+            _nightLights.Clear();
+            _nightEmissions.Clear();
+            _nightBeams.Clear();
+            _nightSpotlights.Clear();
         }
 
         private TMP_FontAsset FindScoreFont()
@@ -640,6 +834,11 @@ namespace RalphEngelstadAudio
         private void Update()
         {
             EnsureSpeakerRig();
+            if (_arenaRoot != null)
+            {
+                UpdateNightModeFade();
+                if (_nightMode) UpdateNightBeamSweep();
+            }
             if (_paRoot != null)
             {
                 if (NetworkBehaviourSingleton<GameManager>.Instance != null)
@@ -667,10 +866,11 @@ namespace RalphEngelstadAudio
                 }
             }
 
-            // F6 horn, F7 cheer, F8 Sioux, F9 stop PA, F10 board toggle
+            // F6 horn, F7 cheer, F8 Sioux, F9 stop PA, F10 board toggle, F11 night mode
             Keyboard kb = Keyboard.current;
             if (kb != null)
             {
+                if (_arenaBound && kb.f11Key.wasPressedThisFrame) SetNightMode(!_nightMode);
                 if (kb.f10Key.wasPressedThisFrame)
                 {
                     _useCylinder = !_useCylinder;

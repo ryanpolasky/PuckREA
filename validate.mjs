@@ -50,6 +50,18 @@ if (gltf.meshes[boxNode.mesh]?.name !== 'REA_Board_Box' || gltf.meshes[cylinderN
   throw new Error('board meshes missing');
 }
 if (JSON.stringify(cylinderNode.scale) !== '[0,0,0]') throw new Error('cylinder board must default to scale zero');
+const nightBeamNodes = gltf.nodes.filter((n) => n.name && /^REA_NightBeam_[1-6]$/.test(n.name));
+if (nightBeamNodes.length !== 6) throw new Error(`expected 6 night beam nodes, found ${nightBeamNodes.length}`);
+for (const node of nightBeamNodes) {
+  const nodeIndex = gltf.nodes.indexOf(node);
+  if (!arenaNode.children?.includes(nodeIndex)) throw new Error(`${node.name} must be a child of Arena`);
+  if (JSON.stringify(node.scale) !== '[0,0,0]') throw new Error(`${node.name} must default to scale zero`);
+}
+const beamMeshIndex = nightBeamNodes[0].mesh;
+if (gltf.meshes[beamMeshIndex]?.name !== 'REA_NightBeam'
+  || nightBeamNodes.some((node) => node.mesh !== beamMeshIndex)) throw new Error('night beam nodes must share their mesh');
+const beamTriangles = gltf.meshes[beamMeshIndex].primitives.reduce((sum, prim) => sum + gltf.accessors[prim.indices].count / 3, 0);
+if (beamTriangles !== 24) throw new Error(`night beam mesh must have 24 triangles, found ${beamTriangles}`);
 for (const [boardNode, prefix] of [[boxNode, 'Box'], [cylinderNode, 'Cyl']]) {
   for (const side of ['PZ', 'NZ', 'PX', 'NX']) {
     const anchorName = `REA_ScoreAnchor_${prefix}_${side}`;
@@ -61,4 +73,5 @@ const manifest = JSON.parse(readFileSync('dist/Ralph Engelstad Arena/Ralph Engel
 console.log(`GLB valid: ${gltf.meshes.length} meshes, ${verts} verts, ${tris} tris, ${gltf.materials.length} materials, ${(gltf.textures || []).length} textures, ${specNodes.length} spectator spots`);
 console.log(`board nodes: ${boxNode.name} (visible), ${cylinderNode.name} (scale 0)`);
 console.log('score anchors: 4 box + 4 cylinder');
+console.log(`night beams: ${nightBeamNodes.length} nodes at scale zero, ${beamTriangles}-triangle shared mesh`);
 console.log(`manifest: "${manifest.name}" by ${manifest.author} -> ${manifest.model}`);

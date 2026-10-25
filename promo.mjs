@@ -10,6 +10,13 @@ const FRAMES_DIR = path.join(OUT_DIR, '_frames');
 const WIDTH = Number(process.env.W || 1920);
 const HEIGHT = Number(process.env.H || 1080);
 const BOARD_MODE = process.env.BOARD === 'cylinder' ? 'cylinder' : 'box';
+const NIGHT_MODE = process.env.NIGHT === '1';
+const requestedNightDim = Number(process.env.NIGHT_DIM ?? 0.12);
+const NIGHT_DIM = Number.isFinite(requestedNightDim) ? Math.max(0, Math.min(1, requestedNightDim)) : 0.12;
+const NIGHT_BEAMS = process.env.NIGHT_BEAMS !== '0';
+const SHOT_SET = process.env.SHOT_SET
+  ? new Set(process.env.SHOT_SET.split(',').map((s) => s.trim()).filter(Boolean))
+  : null;
 const ARENA_FILE = path.join(REPO_DIR, 'dist', 'Ralph Engelstad Arena', 'ralph_engelstad.glb');
 const ICE_FILE = path.join(REPO_DIR, 'assets', 'generated', 'puck_ice_surface.png');
 const PLAYWRIGHT_FALLBACK = 'file:///C:/Projects/Marralhinha/node_modules/playwright/index.mjs';
@@ -58,6 +65,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const W = ${WIDTH}, H = ${HEIGHT};
+const nightMode = ${JSON.stringify(NIGHT_MODE)};
+const nightDim = ${JSON.stringify(NIGHT_DIM)};
+const nightBeamsVisible = ${JSON.stringify(NIGHT_BEAMS)};
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(1);
@@ -78,15 +88,16 @@ composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
 // Balanced arena lighting so ice logo, red/blue lines, jumbotron, and dark green leather seats have rich contrast
-scene.add(new THREE.AmbientLight(0xc8dcd0, 0.75));
-const hemi = new THREE.HemisphereLight(0xd8efe2, 0x221e18, 0.55);
+const ambientScale = nightMode ? nightDim : 1;
+scene.add(new THREE.AmbientLight(0xc8dcd0, 0.75 * ambientScale));
+const hemi = new THREE.HemisphereLight(0xd8efe2, 0x221e18, 0.55 * ambientScale);
 scene.add(hemi);
 
-const dir1 = new THREE.DirectionalLight(0xf6fff9, 0.85);
+const dir1 = new THREE.DirectionalLight(0xf6fff9, 0.85 * ambientScale);
 dir1.position.set(18, 38, 22);
 scene.add(dir1);
 
-const dir2 = new THREE.DirectionalLight(0xd8f0e2, 0.55);
+const dir2 = new THREE.DirectionalLight(0xd8f0e2, 0.55 * ambientScale);
 dir2.position.set(-22, 34, -26);
 scene.add(dir2);
 
@@ -200,6 +211,37 @@ gltf.scene.traverse((node) => {
 });
 scene.add(gltf.scene);
 
+gltf.scene.traverse((node) => {
+  if (!node.name || !node.name.startsWith('REA_NightBeam_')) return;
+  if (!nightMode || !nightBeamsVisible) {
+    node.scale.setScalar(0);
+    return;
+  }
+  node.scale.setScalar(1);
+  const index = Number(node.name.split('_').pop()) - 1;
+  const phase = index * 1.0472;
+  const endSpot = index >= 4;
+  const xSign = index < 2 ? -1 : 1;
+  const zSign = index === 0 || index === 2 || index === 4 ? -1 : 1;
+  const target = new THREE.Vector3(
+    endSpot
+      ? 1.5 * Math.sin(phase)
+      : xSign * (6 + 1.5 * Math.sin(phase)),
+    0.05,
+    zSign * (endSpot
+      ? 12 + 2 * Math.sin(phase * 1.4)
+      : 20 + 3.5 * Math.sin(phase * 1.4)),
+  );
+  const origin = node.getWorldPosition(new THREE.Vector3());
+  node.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), target.clone().sub(origin).normalize());
+  node.updateMatrixWorld(true);
+  const spotlight = new THREE.SpotLight(0x26ff59, 8, 40, THREE.MathUtils.degToRad(11), 0.45, 2);
+  spotlight.position.copy(origin);
+  spotlight.target.position.copy(target);
+  spotlight.castShadow = false;
+  scene.add(spotlight, spotlight.target);
+});
+
 const liveScoreCanvas = document.createElement('canvas');
 liveScoreCanvas.width = 1024;
 liveScoreCanvas.height = 512;
@@ -252,10 +294,16 @@ const capGeo = new THREE.SphereGeometry(0.165, 8, 6, 0, Math.PI * 2, 0, Math.PI 
 let specIdx = 0;
 gltf.scene.traverse((node) => {
   if (node.isLight) {
-    node.intensity *= 0.12;
+    node.intensity *= nightMode ? nightDim : 0.12;
   }
-  if (node.isMesh && node.material && node.material.emissiveIntensity !== undefined) {
-    node.material.emissiveIntensity = 0.65;
+  if (node.isMesh && node.material) {
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      if (material.emissiveIntensity === undefined) continue;
+      material.emissiveIntensity = nightMode && material.name.startsWith('roofFloodGlow')
+        ? 0.65 * nightDim
+        : 0.65;
+    }
   }
   if (node.name && node.name.startsWith('Spectator') && node.name !== 'Spectator') {
     const jm = jerseyMats[specIdx % jerseyMats.length];
@@ -368,7 +416,9 @@ const shots = [
   },
 ];
 
-for (const s of shots) {
+for (let i = 0; i < shots.length; i++) {
+  const s = shots[i];
+  if (SHOT_SET && !SHOT_SET.has(String(i + 1)) && !SHOT_SET.has(s.file)) continue;
   const shotStart = performance.now();
   await page.evaluate(({ eye, look, fov }) => window.renderView(eye, look, fov), s);
   const outPath = path.join(OUT_DIR, s.file);

@@ -812,6 +812,21 @@ export function buildArena() {
       doubleSided: true,
       name: 'lampGlow',
     }),
+    roofFloodGlow: makeMaterial({
+      color: [1, 1, 1, 1],
+      emissive: [2.5, 2.5, 2.5],
+      roughness: 0.15,
+      doubleSided: true,
+      name: 'roofFloodGlow',
+    }),
+    nightBeam: makeMaterial({
+      color: [0.15, 1, 0.35, 0.10],
+      roughness: 1,
+      doubleSided: true,
+      alphaMode: 'BLEND',
+      unlit: true,
+      name: 'nightBeam',
+    }),
     sconceGlow: makeMaterial({
       color: lin([255, 218, 145]),
       emissive: lin([255, 213, 140]).slice(0, 3),
@@ -830,6 +845,7 @@ export function buildArena() {
   const b = new Builder();
   const boxBoardBuilder = new Builder();
   const cylinderBoardBuilder = new Builder();
+  const nightBeamBuilder = new Builder();
   const suiteBuilder = new Builder();
   const suitePath = roundedRectPath(41.52, 64.76, 31.58, 16, 28, 16);
   const fasciaPath = offsetPath(suitePath, -0.02);
@@ -1149,7 +1165,7 @@ export function buildArena() {
       const u = lx / halfSpan;
       const ly = roofY - 0.5 + (1 - u * u) * 1.9;
       b.box(lx, ly - 0.17, tz, 1.05, 0.28, 0.72, M.speakerBlack);
-      b.box(lx, ly - 0.34, tz, 1.0, 0.06, 0.60, M.lampGlow);
+      b.box(lx, ly - 0.34, tz, 1.0, 0.06, 0.60, M.roofFloodGlow);
     }
   }
 
@@ -1201,6 +1217,28 @@ export function buildArena() {
 
   const boxAnchors = buildBoxBoard(boxBoardBuilder, M, roofY);
   const cylinderAnchors = buildCylinderBoard(cylinderBoardBuilder, M, roofY);
+  const beamLength = 22;
+  const beamRadius = Math.tan(11 * Math.PI / 180) * beamLength;
+  const beamSegments = 24;
+  for (let i = 0; i < beamSegments; i++) {
+    const a0 = (i / beamSegments) * Math.PI * 2;
+    const a1 = ((i + 1) / beamSegments) * Math.PI * 2;
+    nightBeamBuilder.tri(
+      [0, 0, 0],
+      [beamRadius * Math.cos(a0), -beamLength, beamRadius * Math.sin(a0)],
+      [beamRadius * Math.cos(a1), -beamLength, beamRadius * Math.sin(a1)],
+      M.nightBeam,
+    );
+  }
+  const nightBeamPrims = nightBeamBuilder.toPrims(mats);
+  const nightBeams = [
+    [-11, 22, -18], [-11, 22, 18], [11, 22, -18],
+    [11, 22, 18], [0, 22, -30], [0, 22, 30],
+  ].map((translation, i) => ({
+    name: `REA_NightBeam_${i + 1}`,
+    translation,
+    prims: nightBeamPrims,
+  }));
 
   const lights = [
     { name: 'BowlFill_Center', type: 'point', pos: [0, 10.9, 0], color: [1, 0.95, 0.86], intensity: 35, range: 48 },
@@ -1237,6 +1275,7 @@ export function buildArena() {
     materials: mats,
     prims: allPrims,
     boards,
+    nightBeams,
     textures,
     spectators,
     lights,

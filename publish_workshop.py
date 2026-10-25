@@ -31,6 +31,7 @@ F7 - Stand Up and Cheer
 F8 - Fight on Sioux
 F9 - Stop PA audio
 F10 - Toggle classic/Sioux-era jumbotron
+F11 - Toggle night mode
 [/code]"""
 
 open(ID_FILE, 'w').write('3826743382')
