@@ -14,12 +14,6 @@ LIBERATION_BOLD_CANDIDATES = (
     Path("C:/Windows/Fonts/arialbd.ttf"),
 )
 TITLE_FONT = FONTS / "Anton-Regular.ttf"
-PILL_TEXTS = (
-    "3,000+ 3D LEATHER SEATS",
-    "3D POSITIONAL GOAL HORN & FIGHT SONGS",
-    "LIVE JUMBOTRON & LED RIBBONS",
-)
-PILL_BOXES = ((588, 32, 328, 45), (929, 32, 524, 45), (1466, 32, 413, 45))
 SUBTITLE = "HOME OF THE NORTH DAKOTA FIGHTING SIOUX  •  CUSTOM PUCK ARENA + 3D PA AUDIO"
 
 
@@ -28,22 +22,6 @@ def load_bold_font(size):
         if candidate.is_file():
             return ImageFont.truetype(str(candidate), size)
     raise FileNotFoundError("Install Liberation Sans Bold or Arial Bold to compose the hero.")
-
-
-def draw_centered(draw, text, font, box, fill):
-    x, y, width, height = box
-    bounds = draw.textbbox((0, 0), text, font=font)
-    text_width = bounds[2] - bounds[0]
-    text_height = bounds[3] - bounds[1]
-    draw.text(
-        (
-            x + (width - text_width) / 2 - bounds[0],
-            y + (height - text_height) / 2 - bounds[1],
-        ),
-        text,
-        font=font,
-        fill=fill,
-    )
 
 
 def make_overlay():
@@ -59,17 +37,6 @@ def make_overlay():
         alpha = round(180 * t**1.15)
         shade_draw.line((0, y, 1919, y), fill=(2, 8, 5, alpha))
     overlay.alpha_composite(shade)
-
-    pill_font = load_bold_font(21)
-    for text, (x, y, width, height) in zip(PILL_TEXTS, PILL_BOXES):
-        draw.rounded_rectangle(
-            (x, y, x + width - 1, y + height - 1),
-            radius=12,
-            fill=(10, 28, 19, 255),
-            outline=(0, 215, 95, 255),
-            width=2,
-        )
-        draw_centered(draw, text, pill_font, (x, y, width, height), (240, 255, 245, 255))
 
     center_x, center_y = 151, 952
     draw.ellipse((center_x - 104, center_y - 104, center_x + 104, center_y + 104), fill=(242, 202, 75, 255))
