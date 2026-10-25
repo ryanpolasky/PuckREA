@@ -214,7 +214,7 @@ export function ringStrip(builder, pathA, yA, pathB, yB, mat, hintDir, gaps, gap
   }
 }
 
-export function stairBowl(builder, { path, y, rows, tread, riser, seatMat, riserMat, gaps, gapMat, spectatorOut, spectatorRows, uvRepeat = 48 }) {
+export function stairBowl(builder, { path, y, rows, tread, riser, seatMat, riserMat, gaps, gapMat, spectatorOut, spectatorRows, spectatorDensity = 1, uvRepeat = 48 }) {
   let cur = path;
   let cy = y;
   for (let i = 0; i < rows; i++) {
@@ -222,6 +222,7 @@ export function stairBowl(builder, { path, y, rows, tread, riser, seatMat, riser
     const midPath = offsetPath(cur, tread * 0.5);
     const n = cur.length;
     const total = cur.totalLen || n;
+    let spectatorOrdinal = 0;
     for (let k = 0; k < n; k++) {
       const j = (k + 1) % n;
       const mid = { x: (cur[k].x + cur[j].x) / 2, z: (cur[k].z + cur[j].z) / 2 };
@@ -263,6 +264,9 @@ export function stairBowl(builder, { path, y, rows, tread, riser, seatMat, riser
         if (spectatorOut && (!spectatorRows || spectatorRows.includes(i))) {
           const count = Math.max(1, Math.floor(segLen / 1.95));
           for (let s = 0; s < count; s++) {
+            const keep = Math.floor((spectatorOrdinal + 1) * spectatorDensity) > Math.floor(spectatorOrdinal * spectatorDensity);
+            spectatorOrdinal++;
+            if (!keep) continue;
             const t = (s + 0.5) / count;
             const sx = (cur[k].x * (1 - t) + cur[j].x * t) * 0.45 + (next[k].x * (1 - t) + next[j].x * t) * 0.55;
             const sz = (cur[k].z * (1 - t) + cur[j].z * t) * 0.45 + (next[k].z * (1 - t) + next[j].z * t) * 0.55;

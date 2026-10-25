@@ -110,12 +110,23 @@ export function buildGLB(materials, prims, { boards = [], textures = [], spectat
     const mesh = meshes.length;
     meshes.push({ name: board.name, primitives: buildPrimitives(board.prims) });
     const node = nodes.length;
-    nodes[0].children.push(node);
     nodes.push({
       name: board.name,
       mesh,
       ...(board.hidden ? { scale: [0, 0, 0] } : {}),
     });
+    const children = [];
+    for (const anchor of board.anchors ?? []) {
+      children.push(nodes.length);
+      nodes.push({
+        name: anchor.name,
+        translation: anchor.translation,
+        ...(anchor.rotation ? { rotation: anchor.rotation } : {}),
+        ...(anchor.scale ? { scale: anchor.scale } : {}),
+      });
+    }
+    if (children.length) nodes[node].children = children;
+    nodes[0].children.push(node);
   }
 
   if (spectators.length) {

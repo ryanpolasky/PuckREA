@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -53,6 +54,14 @@ namespace RalphEngelstadAudio
         private const string BoardCylinderPreference = "REA_BoardCylinder";
         private static bool _useCylinder;
 
+        private sealed class LiveScoreTextSet
+        {
+            public TMP_Text Blue;
+            public TMP_Text Clock;
+            public TMP_Text Red;
+            public TMP_Text Period;
+        }
+
         private AudioClip _goalHorn;
         private AudioClip _standUp;
         private AudioClip _fightOn;
@@ -64,10 +73,14 @@ namespace RalphEngelstadAudio
         private Mesh _cutBarrierGlassMesh;
         private MeshRenderer _barrierPillarsRenderer;
         private bool _boardNodesWarningLogged;
+        private bool _arenaBound;
         private readonly List<AudioSource> _centerSpeakers = new List<AudioSource>();
         private readonly List<AudioSource> _endSpeakers = new List<AudioSource>();
         private readonly List<AudioSource> _hornSpeakers = new List<AudioSource>();
         private readonly List<AudioSource> _mutedVanillaHorns = new List<AudioSource>();
+        private readonly List<Scoreboard> _hiddenVanillaScoreboards = new List<Scoreboard>();
+        private readonly List<GameObject> _liveScoreRoots = new List<GameObject>();
+        private readonly List<LiveScoreTextSet> _liveScoreTexts = new List<LiveScoreTextSet>();
 
         private float _targetVolume = 0f;
         private float _currentVolume = 0f;
@@ -102,6 +115,8 @@ namespace RalphEngelstadAudio
             EventManager.RemoveEventListener("Event_Everyone_OnGameStateChanged", OnGameStateChanged);
             RestoreVanillaHorns();
             RestoreBarrierGlass();
+            RestoreVanillaScoreboards();
+            DestroyLiveScoreboards();
         }
 
         private static string FindAudioDirectory()
@@ -159,14 +174,28 @@ namespace RalphEngelstadAudio
             GameObject found = GameObject.Find("Arena Ralph Engelstad Arena");
             if (found == null)
             {
-                if (_arenaRoot != null)
+                if (_arenaBound)
                 {
                     RestoreVanillaHorns();
                     RestoreBarrierGlass();
+                    RestoreVanillaScoreboards();
+                    DestroyLiveScoreboards();
                     _arenaRoot = null;
                     _paRoot = null;
+                    _arenaBound = false;
                 }
                 return;
+            }
+
+            if (_arenaBound && _arenaRoot != found)
+            {
+                RestoreVanillaHorns();
+                RestoreBarrierGlass();
+                RestoreVanillaScoreboards();
+                DestroyLiveScoreboards();
+                _paRoot = null;
+                _arenaRoot = null;
+                _arenaBound = false;
             }
 
             // Reload WAVs on arena bind so hot-reloads in ARENA LOADER pick up updated audio immediately
@@ -179,7 +208,11 @@ namespace RalphEngelstadAudio
             }
 
             _arenaRoot = found;
+            _arenaBound = true;
             ApplyBoardState();
+            CreateLiveScoreboards();
+            HideVanillaScoreboards();
+            UpdateLiveScoreFromManager();
             _paRoot = new GameObject("REA_PositionalPA_System");
             _paRoot.transform.SetParent(_arenaRoot.transform, false);
 
@@ -241,6 +274,128 @@ namespace RalphEngelstadAudio
                 Debug.LogWarning("[RalphEngelstadAudio] Could not find both jumbotron board nodes");
                 _boardNodesWarningLogged = true;
             }
+        }
+
+        private TMP_FontAsset FindScoreFont()
+        {
+            Scoreboard[] scoreboards = UnityEngine.Object.FindObjectsByType<Scoreboard>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (Scoreboard scoreboard in scoreboards)
+            {
+                if (scoreboard == null) continue;
+                TMP_Text[] texts = scoreboard.GetComponentsInChildren<TMP_Text>(true);
+                foreach (TMP_Text text in texts)
+                {
+                    if (text != null && text.font != null) return text.font;
+                }
+            }
+            return TMP_Settings.defaultFontAsset;
+        }
+
+        private TMP_Text CreateScoreText(Transform parent, string name, float w, float h, float u, float v, float slotW, float slotH, Color color, TMP_FontAsset font)
+        {
+            GameObject go = new GameObject(name, typeof(TextMeshPro));
+            go.transform.SetParent(parent, false);
+            TextMeshPro text = go.GetComponent<TextMeshPro>();
+            if (font != null) text.font = font;
+            text.enableAutoSizing = true;
+            text.fontSizeMin = 1f;
+            text.fontSizeMax = 512f;
+            text.alignment = TextAlignmentOptions.Center;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.overflowMode = TextOverflowModes.Overflow;
+            text.color = color;
+            text.rectTransform.sizeDelta = new Vector2(w * slotW, h * slotH);
+            text.rectTransform.localPosition = new Vector3((u - 0.5f) * w, (v - 0.5f) * h, 0f);
+            return text;
+        }
+
+        private void CreateLiveScoreboards()
+        {
+            DestroyLiveScoreboards();
+            if (_arenaRoot == null) return;
+            TMP_FontAsset font = FindScoreFont();
+            Transform[] nodes = _arenaRoot.GetComponentsInChildren<Transform>(true);
+            foreach (Transform anchor in nodes)
+            {
+                if (anchor == null || !anchor.name.StartsWith("REA_ScoreAnchor_", StringComparison.Ordinal)) continue;
+                Transform board = anchor.parent;
+                if (board == null || !board.name.StartsWith("REA_Board_", StringComparison.Ordinal)) continue;
+                float w = anchor.lossyScale.x;
+                float h = anchor.lossyScale.y;
+                if (w <= 0.01f || h <= 0.01f) continue;
+
+                Vector3 outward = anchor.forward;
+                Vector3 horizontalOut = new Vector3(outward.x, 0f, outward.z);
+                Vector3 radial = anchor.position - board.position;
+                radial.y = 0f;
+                if (Vector3.Dot(horizontalOut, radial) < 0f) outward = -outward;
+
+                GameObject root = new GameObject("REA_LiveScore_" + anchor.name);
+                root.transform.SetParent(board, false);
+                root.transform.position = anchor.position;
+                root.transform.rotation = Quaternion.LookRotation(-outward, anchor.up);
+                root.transform.localScale = Vector3.one;
+                _liveScoreRoots.Add(root);
+                _liveScoreTexts.Add(new LiveScoreTextSet
+                {
+                    Blue = CreateScoreText(root.transform, "BlueScore", w, h, 0.18f, 0.45f, 0.26f, 0.42f, Color.white, font),
+                    Clock = CreateScoreText(root.transform, "Clock", w, h, 0.50f, 0.66f, 0.40f, 0.36f, new Color(1f, 0.78f, 0.25f), font),
+                    Red = CreateScoreText(root.transform, "RedScore", w, h, 0.82f, 0.45f, 0.26f, 0.42f, Color.white, font),
+                    Period = CreateScoreText(root.transform, "Period", w, h, 0.50f, 0.13f, 0.14f, 0.18f, new Color(0.55f, 1f, 0.6f), font),
+                });
+            }
+        }
+
+        private void DestroyLiveScoreboards()
+        {
+            foreach (GameObject root in _liveScoreRoots)
+            {
+                if (root != null) UnityEngine.Object.Destroy(root);
+            }
+            _liveScoreRoots.Clear();
+            _liveScoreTexts.Clear();
+        }
+
+        private void HideVanillaScoreboards()
+        {
+            Scoreboard[] scoreboards = UnityEngine.Object.FindObjectsByType<Scoreboard>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (Scoreboard scoreboard in scoreboards)
+            {
+                if (scoreboard == null || scoreboard.gameObject == null) continue;
+                if (!scoreboard.gameObject.activeSelf) continue;
+                if (!_hiddenVanillaScoreboards.Contains(scoreboard)) _hiddenVanillaScoreboards.Add(scoreboard);
+                scoreboard.gameObject.SetActive(false);
+            }
+        }
+
+        private void RestoreVanillaScoreboards()
+        {
+            foreach (Scoreboard scoreboard in _hiddenVanillaScoreboards)
+            {
+                if (scoreboard != null && scoreboard.gameObject != null) scoreboard.gameObject.SetActive(true);
+            }
+            _hiddenVanillaScoreboards.Clear();
+        }
+
+        private void UpdateLiveScore(GameState gs)
+        {
+            bool timed = (int)gs.Phase >= (int)GamePhase.PreGame && (int)gs.Phase <= (int)GamePhase.PostGame;
+            int totalSeconds = Math.Max(0, (int)gs.Tick);
+            string clock = timed ? string.Format("{0:00}:{1:00}", totalSeconds / 60, totalSeconds % 60) : "--:--";
+            string period = timed ? (gs.IsOvertime ? "OT" : gs.Period.ToString()) : "-";
+            foreach (LiveScoreTextSet text in _liveScoreTexts)
+            {
+                if (text.Blue != null) text.Blue.text = gs.BlueScore.ToString();
+                if (text.Clock != null) text.Clock.text = clock;
+                if (text.Red != null) text.Red.text = gs.RedScore.ToString();
+                if (text.Period != null) text.Period.text = period;
+            }
+        }
+
+        private void UpdateLiveScoreFromManager()
+        {
+            GameManager manager = NetworkBehaviourSingleton<GameManager>.Instance;
+            if (manager != null) UpdateLiveScore(manager.GameState.Value);
         }
 
         private AudioSource CreateSpeaker(string name, Vector3 pos, bool isDistantEndSpeaker)
@@ -467,10 +622,17 @@ namespace RalphEngelstadAudio
         private void OnGameStateChanged(Dictionary<string, object> msg)
         {
             EnsureSpeakerRig();
-            if (_paRoot == null || msg == null || !msg.ContainsKey("newGameState")) return;
-
-            GameState gs = (GameState)msg["newGameState"];
-            ApplyPhaseAudio(gs.Phase);
+            if (_arenaRoot != null) HideVanillaScoreboards();
+            if (msg != null && msg.ContainsKey("newGameState"))
+            {
+                GameState gs = (GameState)msg["newGameState"];
+                UpdateLiveScore(gs);
+                if (_paRoot != null) ApplyPhaseAudio(gs.Phase);
+            }
+            else
+            {
+                UpdateLiveScoreFromManager();
+            }
         }
 
         private void Update()

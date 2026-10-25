@@ -200,6 +200,43 @@ gltf.scene.traverse((node) => {
 });
 scene.add(gltf.scene);
 
+const liveScoreCanvas = document.createElement('canvas');
+liveScoreCanvas.width = 1024;
+liveScoreCanvas.height = 512;
+const scoreContext = liveScoreCanvas.getContext('2d');
+scoreContext.textAlign = 'center';
+scoreContext.textBaseline = 'middle';
+const liveScoreSlots = [
+  { text: '3', u: 0.18, v: 0.45, w: 0.26, h: 0.42, color: '#ffffff', size: 180 },
+  { text: '12:34', u: 0.50, v: 0.66, w: 0.40, h: 0.36, color: '#ffc640', size: 130 },
+  { text: '1', u: 0.82, v: 0.45, w: 0.26, h: 0.42, color: '#ffffff', size: 180 },
+  { text: '2', u: 0.50, v: 0.13, w: 0.14, h: 0.18, color: '#8cffae', size: 92 },
+];
+for (const slot of liveScoreSlots) {
+  scoreContext.fillStyle = slot.color;
+  scoreContext.font = 'bold ' + slot.size + 'px Arial';
+  scoreContext.shadowColor = slot.color;
+  scoreContext.shadowBlur = 10;
+  scoreContext.fillText(slot.text, slot.u * 1024, (1 - slot.v) * 512, slot.w * 1024);
+}
+const liveScoreTexture = new THREE.CanvasTexture(liveScoreCanvas);
+liveScoreTexture.colorSpace = THREE.SRGBColorSpace;
+const liveScoreMaterial = new THREE.MeshBasicMaterial({
+  map: liveScoreTexture,
+  transparent: true,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+  toneMapped: false,
+});
+const liveScoreGeometry = new THREE.PlaneGeometry(1, 1);
+gltf.scene.traverse((node) => {
+  if (!node.name || !node.name.startsWith('REA_ScoreAnchor_')) return;
+  if (node.scale.x <= 0 || node.scale.y <= 0) return;
+  const mesh = new THREE.Mesh(liveScoreGeometry, liveScoreMaterial);
+  mesh.position.z = 0.002;
+  node.add(mesh);
+});
+
 const jerseyMats = [
   new THREE.MeshStandardMaterial({ color: 0x00883c, roughness: 0.7 }),
   new THREE.MeshStandardMaterial({ color: 0x006b30, roughness: 0.7 }),

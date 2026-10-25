@@ -3,10 +3,288 @@ import { Builder, roundedRectPath, offsetPath, ringStrip, flatDisc, stairBowl, i
 import { makeMaterial } from './gltf.js';
 import { buildTextures } from './textures.js';
 
+const CROWD = { lower: 0.5, upper: 0.12, suite: 3 };
+const SUITE_STYLE = process.env.SUITE_STYLE === 'glass' ? 'glass' : 'open';
+const SUITE = { width: 3.8, spacing: 4.2, front: 0.02, floorY: 10.62, ceilingY: 13.08 };
+
 const lin = (c) => {
   const f = (v) => Math.pow((v / 255 + 0.055) / 1.055, 2.4);
   return [f(c[0]), f(c[1]), f(c[2]), c.length > 3 ? c[3] / 255 : 1];
 };
+
+function pathPointAt(path, distance) {
+  const d = ((distance % path.totalLen) + path.totalLen) % path.totalLen;
+  let i = 0;
+  while (i + 1 < path.length && path[i + 1].s <= d) i++;
+  const a = path[i], b = path[(i + 1) % path.length];
+  const segLen = i === path.length - 1 ? path.totalLen - a.s : b.s - a.s;
+  const t = segLen ? (d - a.s) / segLen : 0;
+  const nx0 = a.nx + (b.nx - a.nx) * t;
+  const nz0 = a.nz + (b.nz - a.nz) * t;
+  const nLen = Math.hypot(nx0, nz0) || 1;
+  return {
+    x: a.x + (b.x - a.x) * t,
+    z: a.z + (b.z - a.z) * t,
+    nx: nx0 / nLen,
+    nz: nz0 / nLen,
+  };
+}
+
+function suiteCenters(path) {
+  const centers = [];
+  for (let s = SUITE.spacing / 2; s < path.totalLen; s += SUITE.spacing) {
+    const p = pathPointAt(path, s);
+    if (Math.min(Math.abs(p.nx), Math.abs(p.nz)) > 0.02) continue;
+    centers.push(p);
+  }
+  return centers;
+}
+
+function quatFromAxes(x, y, z) {
+  const m00 = x[0], m01 = y[0], m02 = z[0];
+  const m10 = x[1], m11 = y[1], m12 = z[1];
+  const m20 = x[2], m21 = y[2], m22 = z[2];
+  const trace = m00 + m11 + m22;
+  let qx, qy, qz, qw;
+  if (trace > 0) {
+    const s = Math.sqrt(trace + 1) * 2;
+    qw = 0.25 * s;
+    qx = (m21 - m12) / s;
+    qy = (m02 - m20) / s;
+    qz = (m10 - m01) / s;
+  } else if (m00 > m11 && m00 > m22) {
+    const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+    qw = (m21 - m12) / s;
+    qx = 0.25 * s;
+    qy = (m01 + m10) / s;
+    qz = (m02 + m20) / s;
+  } else if (m11 > m22) {
+    const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+    qw = (m02 - m20) / s;
+    qx = (m01 + m10) / s;
+    qy = 0.25 * s;
+    qz = (m12 + m21) / s;
+  } else {
+    const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+    qw = (m10 - m01) / s;
+    qx = (m02 + m20) / s;
+    qy = (m12 + m21) / s;
+    qz = 0.25 * s;
+  }
+  return [qx, qy, qz, qw];
+}
+
+function triangleArea(positions, a, b, c) {
+  const ax = positions[b * 3] - positions[a * 3];
+  const ay = positions[b * 3 + 1] - positions[a * 3 + 1];
+  const az = positions[b * 3 + 2] - positions[a * 3 + 2];
+  const bx = positions[c * 3] - positions[a * 3];
+  const by = positions[c * 3 + 1] - positions[a * 3 + 1];
+  const bz = positions[c * 3 + 2] - positions[a * 3 + 2];
+  return Math.hypot(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx) * 0.5;
+}
+
+function clusterSeatQuads(bowlMeta, bowlBin) {
+  const quads = [];
+  for (const pm of bowlMeta.prims) {
+    if (pm.mat !== 'SeatShell' && pm.mat !== 'SeatShellY') continue;
+    let off = pm.offset;
+    const positions = new Float32Array(bowlBin.buffer, bowlBin.byteOffset + off, pm.vcount * 3);
+    off += pm.posLen + pm.normLen + pm.uvLen;
+    const indices = new Uint32Array(bowlBin.buffer, bowlBin.byteOffset + off, pm.icount);
+    for (let i = 0; i + 5 < indices.length; i += 6) {
+      const ids = [...new Set(indices.subarray(i, i + 6))];
+      if (ids.length !== 4) continue;
+      const center = [0, 0, 0];
+      let minY = Infinity, maxY = -Infinity;
+      for (const id of ids) {
+        for (let axis = 0; axis < 3; axis++) center[axis] += positions[id * 3 + axis] / 4;
+        minY = Math.min(minY, positions[id * 3 + 1]);
+        maxY = Math.max(maxY, positions[id * 3 + 1]);
+      }
+      const area = triangleArea(positions, ...indices.subarray(i, i + 3))
+        + triangleArea(positions, ...indices.subarray(i + 3, i + 6));
+      quads.push({ center, area, flat: maxY - minY <= 0.025 });
+    }
+  }
+
+  const cellSize = 0.75;
+  const seats = quads
+    .filter((quad) => quad.flat && quad.area >= 0.16 && quad.area <= 0.22)
+    .map((quad) => ({ center: quad.center, quads: [] }));
+  const grid = new Map();
+  const cellKey = (point) => point.map((v) => Math.floor(v / cellSize)).join(',');
+  for (const seat of seats) {
+    const key = cellKey(seat.center);
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push(seat);
+  }
+  const findNearest = (point, maxDistance) => {
+    const cell = point.map((v) => Math.floor(v / cellSize));
+    const radius = Math.ceil(maxDistance / cellSize);
+    let nearest = null, nearestD2 = maxDistance * maxDistance;
+    for (let x = -radius; x <= radius; x++) {
+      for (let y = -radius; y <= radius; y++) {
+        for (let z = -radius; z <= radius; z++) {
+          for (const seat of grid.get(`${cell[0] + x},${cell[1] + y},${cell[2] + z}`) ?? []) {
+            const d2 = point.reduce((sum, v, axis) => sum + (v - seat.center[axis]) ** 2, 0);
+            if (d2 <= nearestD2) {
+              nearest = seat;
+              nearestD2 = d2;
+            }
+          }
+        }
+      }
+    }
+    return nearest;
+  };
+  for (const quad of quads) {
+    const seat = findNearest(quad.center, 0.65);
+    if (seat) seat.quads.push(quad);
+  }
+  return { seats, findNearest };
+}
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function buildLowerCrowd(seatData, existing) {
+  const matched = [];
+  for (const spot of existing) {
+    const seat = seatData.findNearest([spot.x, spot.y, spot.z], 0.7);
+    if (seat) matched.push({ seat, spot });
+  }
+  if (matched.length !== existing.length) {
+    throw new Error(`Matched ${matched.length} of ${existing.length} existing spectator spots to seats`);
+  }
+  const offset = [0, 1, 2].map((axis) => median(matched.map(({ seat, spot }) => spot[['x', 'y', 'z'][axis]] - seat.center[axis])));
+  const rows = new Map();
+  const rowKey = (y) => Math.round(y * 100);
+  for (const seat of seatData.seats) {
+    const key = rowKey(seat.center[1]);
+    if (!rows.has(key)) rows.set(key, []);
+    rows.get(key).push(seat);
+  }
+  const populatedRows = new Set(matched.map(({ seat }) => rowKey(seat.center[1])));
+  const baselineSeatCount = [...populatedRows].reduce((sum, key) => sum + (rows.get(key)?.length ?? 0), 0);
+  const density = matched.length / baselineSeatCount;
+  const highestPopulatedRow = Math.max(...[...populatedRows].map(Number));
+  const added = [];
+  for (const [key, row] of rows) {
+    if (key <= highestPopulatedRow) continue;
+    const eligible = row
+      .map((seat) => ({
+        x: seat.center[0] + offset[0],
+        y: seat.center[1] + offset[1],
+        z: seat.center[2] + offset[2],
+      }))
+      .filter((spot) => !(spot.x < -24.0 && spot.y < 2.55 && Math.abs(spot.z) < 8.28))
+      .sort((a, b) => Math.atan2(a.x, -a.z) - Math.atan2(b.x, -b.z));
+    const count = Math.round(eligible.length * density * CROWD.lower);
+    if (!count) continue;
+    for (let i = 0; i < count; i++) {
+      added.push(eligible[Math.floor((i + 0.5) * eligible.length / count)]);
+    }
+  }
+  return { offset, added, density, matched: matched.length };
+}
+
+function buildSuites(builder, M, centerPoints, style, seatOffset, spectatorsPerSuite) {
+  const centers = [];
+  const spectators = [];
+  const width = SUITE.width, halfWidth = width / 2;
+  const frontD = SUITE.front, backD = 1.58;
+  const floorY = SUITE.floorY, ceilingY = SUITE.ceilingY, stepY = 10.86, seatH = 0.55;
+
+  for (const p of centerPoints) {
+    const tx = -p.nz, tz = p.nx;
+    const angle = Math.atan2(p.nx, -p.nz);
+    const point = (u, d, y) => [p.x + tx * u + p.nx * d, y, p.z + tz * u + p.nz * d];
+    const quad = (coords, mat, hint, uvs) => builder.quad(...coords, mat, hint, uvs);
+
+    quad([
+      point(-halfWidth, frontD, floorY),
+      point(halfWidth, frontD, floorY),
+      point(halfWidth, backD, floorY),
+      point(-halfWidth, backD, floorY),
+    ], M.dark, [0, 1, 0]);
+    quad([
+      point(-halfWidth, frontD, ceilingY),
+      point(halfWidth, frontD, ceilingY),
+      point(halfWidth, backD, ceilingY),
+      point(-halfWidth, backD, ceilingY),
+    ], M.tier, [0, -1, 0]);
+    quad([
+      point(-halfWidth, backD, floorY),
+      point(halfWidth, backD, floorY),
+      point(halfWidth, backD, ceilingY),
+      point(-halfWidth, backD, ceilingY),
+    ], M.suiteInterior, [-p.nx, 0, -p.nz]);
+    for (const side of [-1, 1]) {
+      const u = side * halfWidth;
+      quad([
+        point(u, frontD, floorY),
+        point(u, backD, floorY),
+        point(u, backD, ceilingY),
+        point(u, frontD, ceilingY),
+      ], M.tier, [side * tx, 0, side * tz]);
+    }
+    for (const d of [0.58, 1.18]) {
+      const u = d < 1 ? -0.85 : 0.85;
+      quad([
+        point(u - 0.08, d - 0.05, ceilingY - 0.01),
+        point(u + 0.08, d - 0.05, ceilingY - 0.01),
+        point(u + 0.08, d + 0.05, ceilingY - 0.01),
+        point(u - 0.08, d + 0.05, ceilingY - 0.01),
+      ], M.suiteWarm, [0, -1, 0]);
+    }
+    quad([
+      point(-1.15, 0.84, stepY),
+      point(1.15, 0.84, stepY),
+      point(1.15, 1.42, stepY),
+      point(-1.15, 1.42, stepY),
+    ], M.speakerBlack, [0, 1, 0]);
+    quad([
+      point(-1.15, 0.84, floorY),
+      point(1.15, 0.84, floorY),
+      point(1.15, 0.84, stepY),
+      point(-1.15, 0.84, stepY),
+    ], M.speakerBlack, [-p.nx, 0, -p.nz]);
+    builder.box(...point(0, 0.18, 11.98), width - 0.12, 0.14, 0.20, M.suiteWood, 0, angle, 0);
+
+    if (style === 'glass') {
+      quad([
+        point(-halfWidth + 0.01, frontD, floorY),
+        point(halfWidth - 0.01, frontD, floorY),
+        point(halfWidth - 0.01, frontD, ceilingY),
+        point(-halfWidth + 0.01, frontD, ceilingY),
+      ], M.suiteGlass, [-p.nx, 0, -p.nz]);
+    }
+
+    const seatSpecs = [
+      { u: -0.65, d: 0.48, y: floorY + seatH / 2 },
+      { u: 0.65, d: 0.48, y: floorY + seatH / 2 },
+      { u: -0.65, d: 1.10, y: stepY + seatH / 2 },
+      { u: 0.65, d: 1.10, y: stepY + seatH / 2 },
+    ];
+    for (const seat of seatSpecs) {
+      builder.box(...point(seat.u, seat.d, seat.y), 0.54, seatH, 0.42, M.seatDarkGreen, 0, angle, 0);
+    }
+    for (let i = 0; i < Math.min(spectatorsPerSuite, seatSpecs.length); i++) {
+      const seat = seatSpecs[i];
+      const pos = point(seat.u, seat.d, seat.y + seatH / 2);
+      spectators.push({ x: pos[0] + seatOffset[0], y: pos[1] + seatOffset[1], z: pos[2] + seatOffset[2] });
+    }
+    centers.push({ index: centers.length, x: p.x, z: p.z, nx: p.nx, nz: p.nz });
+  }
+
+  const triangles = [...builder.parts.values()].reduce((sum, part) => sum + part.idx.length / 3, 0);
+  if (triangles > 4000) throw new Error(`Suite geometry exceeds 4,000 triangles: ${triangles}`);
+  return { centers, spectators, triangles };
+}
 
 function iceDisc(b, cx, cz, y, r, segs, mat, down = false) {
   const hn = down ? [0, -1, 0] : [0, 1, 0];
@@ -159,6 +437,41 @@ function buildBoxBoard(b, M, roofY) {
     b.box(sx, 19.15, sz, 0.88, 2.4, 1.05, M.speakerBlack, 0, -a, 0.18);
     b.box(sx, (roofY + 20.35) / 2, sz, 0.14, roofY - 20.35, 0.14, M.speakerBlack);
   }
+  const slope = (4.4 - 3.73) / (14.6 - 11.3);
+  const q = Math.sqrt(1 + slope * slope);
+  const centerY = 12.95;
+  const radius = 3.73 + slope * (centerY - 11.3);
+  const label = { '+z': 'PZ', '-z': 'NZ', '+x': 'PX', '-x': 'NX' };
+  return sides.map((side) => {
+    let center, normal, horizontal, vertical;
+    if (side === '+z') {
+      center = [0, centerY, radius];
+      normal = [0, -slope / q, 1 / q];
+      horizontal = [1, 0, 0];
+      vertical = [0, 1 / q, slope / q];
+    } else if (side === '-z') {
+      center = [0, centerY, -radius];
+      normal = [0, -slope / q, -1 / q];
+      horizontal = [-1, 0, 0];
+      vertical = [0, 1 / q, -slope / q];
+    } else if (side === '+x') {
+      center = [radius, centerY, 0];
+      normal = [1 / q, -slope / q, 0];
+      horizontal = [0, 0, -1];
+      vertical = [slope / q, 1 / q, 0];
+    } else {
+      center = [-radius, centerY, 0];
+      normal = [-1 / q, -slope / q, 0];
+      horizontal = [0, 0, 1];
+      vertical = [-slope / q, 1 / q, 0];
+    }
+    return {
+      name: `REA_ScoreAnchor_Box_${label[side]}`,
+      translation: center.map((v, i) => v + normal[i] * 0.03),
+      rotation: quatFromAxes(horizontal, vertical, normal),
+      scale: [6.6, 3.3, 1],
+    };
+  });
 }
 
 function buildCylinderBoard(b, M, roofY) {
@@ -185,6 +498,11 @@ function buildCylinderBoard(b, M, roofY) {
     b.box(sx, 18.8, sz, 0.72, 2.1, 0.90, M.speakerBlack, 0, -a, 0.18);
     b.box(sx, (roofY + 19.8) / 2, sz, 0.12, roofY - 19.8, 0.12, M.speakerBlack);
   }
+  return ['PZ', 'NZ', 'PX', 'NX'].map((side) => ({
+    name: `REA_ScoreAnchor_Cyl_${side}`,
+    translation: [0, 0, 0],
+    scale: [0, 0, 1],
+  }));
 }
 
 export function buildArena() {
@@ -251,13 +569,23 @@ export function buildArena() {
       doubleSided: true,
       name: 'creamWall',
     }),
-    suiteBand: makeMaterial({
+    suiteInterior: makeMaterial({
       color: [1, 1, 1, 1],
-      texture: texIdx('suite_band'),
-      emissive: [0.12, 0.08, 0.04],
-      roughness: 0.32,
+      texture: texIdx('suite_interior'),
+      emissiveTexture: texIdx('suite_interior'),
+      emissive: [0.45, 0.32, 0.18],
+      roughness: 0.62,
       doubleSided: true,
-      name: 'suiteBand',
+      name: 'suiteInterior',
+    }),
+    suiteWood: makeMaterial({ color: lin([110, 48, 30]), roughness: 0.58, doubleSided: true, name: 'suiteWood' }),
+    suiteGlass: makeMaterial({
+      color: lin([198, 224, 209, 110]),
+      roughness: 0.18,
+      metallic: 0.2,
+      doubleSided: true,
+      alphaMode: 'BLEND',
+      name: 'suiteGlass',
     }),
     suiteWarm: makeMaterial({
       color: lin([245, 198, 125]),
@@ -322,8 +650,8 @@ export function buildArena() {
     }),
     sbScore: makeMaterial({
       color: [1, 1, 1, 1],
-      texture: texIdx('scoreboard_score'),
-      emissiveTexture: texIdx('scoreboard_score'),
+      texture: texIdx('scoreboard_score_live'),
+      emissiveTexture: texIdx('scoreboard_score_live'),
       emissive: [1.1, 1.1, 1.1],
       roughness: 0.25,
       doubleSided: true,
@@ -378,6 +706,10 @@ export function buildArena() {
   const b = new Builder();
   const boxBoardBuilder = new Builder();
   const cylinderBoardBuilder = new Builder();
+  const suiteBuilder = new Builder();
+  const suitePath = roundedRectPath(41.52, 64.76, 31.58, 16, 28, 16);
+  const fasciaPath = offsetPath(suitePath, -0.02);
+  const suiteOpeningCenters = suiteCenters(fasciaPath);
 
   // 1. LOAD EXTRACTED BOWL, STAIRS, RAILINGS, 3,000+ 3D STADIUM CHAIRS, BENCHES, AND SPECTATORS
   const bowlMeta = JSON.parse(readFileSync('assets/bowl.json', 'utf8'));
@@ -442,6 +774,15 @@ export function buildArena() {
       const cz = (z0 + z1 + z2) / 3;
       const maxY = Math.max(y0, y1, y2);
       if (pm.mat === 'Glass' && maxY < 4.0) continue;
+      if (pm.mat === 'Wall' && cy >= SUITE.floorY - 0.1 && cy <= SUITE.ceilingY + 0.1) {
+        const overlapsSuite = suiteOpeningCenters.some((p) => {
+          const dx = cx - p.x, dz = cz - p.z;
+          const along = dx * -p.nz + dz * p.nx;
+          const depth = dx * p.nx + dz * p.nz;
+          return Math.abs(along) < SUITE.width / 2 && Math.abs(depth - SUITE.front) < 0.05;
+        });
+        if (overlapsSuite) continue;
+      }
       // Remove the 2 cols x 2 rows of floating chairs on each side of the penalty box (x < -24, y < 2.55, |z| < 8.28) where there is no concrete tier beneath them
       if ((pm.mat === 'SeatShell' || pm.mat === 'SeatShellY' || pm.mat === 'SeatFrame') && cx < -24.0 && cy < 2.55 && Math.abs(cz) < 8.28) {
         continue;
@@ -459,7 +800,7 @@ export function buildArena() {
       }
       filteredIdx.push(i0, i1, i2);
     }
-    importedPrims.push({ positions: pos, normals: norm, uvs: uv, indices: filteredIdx, material: matIndex });
+    importedPrims.push({ positions: pos, normals: norm, uvs: uv, indices: filteredIdx, material: matIndex, sourceMaterial: pm.mat });
 
     // Close the far back end (r = 45.12..68.36, y = 5.08..7.18) of each of the 13 fan tunnels with a single exact back-wall quad (zero clipping!)
     if (pm.mat === 'TunnelDark') {
@@ -485,6 +826,11 @@ export function buildArena() {
 
   }
 
+  const benchFilter = (s) => !(s.x < -24.0 && s.y < 2.55 && Math.abs(s.z) < 8.28);
+  const filteredSpectators = bowlMeta.spectators.filter(benchFilter);
+  const seatData = clusterSeatQuads(bowlMeta, bowlBin);
+  const lowerCrowd = buildLowerCrowd(seatData, filteredSpectators);
+
   // 2. RINK DETAILS: Real Fighting Sioux center-ice logo (TOP of logo at +X closest to the player bench!) + 4 neutral-zone logos
   const iceY = 0.018;
   iceDisc(b, 0, 0, iceY, 6.25, 48, M.centerIce, false);
@@ -509,6 +855,7 @@ export function buildArena() {
     uvs: new Array((pillars.pos.length / 3) * 2).fill(0),
     indices: pillars.idx,
     material: mats.indexOf(M.rail),
+    sourceMaterial: 'Pillars',
   });
 
   // Player bench back walls on +X (z = [-10.38, -0.65] and [0.65, 10.38]) and narrower penalty-box back walls on -X (z = [-8.27, -0.65] and [0.65, 8.27] so seats at |z|=8.27..10.38 never clip!)
@@ -552,9 +899,7 @@ export function buildArena() {
   }
 
   const roofY = 25.5;
-  const suitePath = roundedRectPath(41.52, 64.76, 31.58, 16, 28, 16);
-  const fasciaPath = offsetPath(suitePath, -0.02);
-  ringStrip(b, fasciaPath, 10.60, fasciaPath, 13.15, M.suiteBand, (m) => [-m.x, 0, -m.z], null, null, fasciaPath.totalLen / 3);
+  const suiteData = buildSuites(suiteBuilder, M, suiteOpeningCenters, SUITE_STYLE, lowerCrowd.offset, CROWD.suite);
 
   ringStrip(b, fasciaPath, 14.25, fasciaPath, 15.10, M.concrete, (m) => [-m.x, 0, -m.z]);
   const parapetPath = offsetPath(fasciaPath, 0.15);
@@ -566,6 +911,7 @@ export function buildArena() {
     const center = Math.PI / 4 + i * (Math.PI / 6);
     return [center - 0.018, center + 0.018];
   });
+  const upperCrowd = [];
   const upperSteps = stairBowl(b, {
     path: fasciaPath,
     y: 15.10,
@@ -576,6 +922,8 @@ export function buildArena() {
     riserMat: M.tier,
     gaps: upperGaps,
     gapMat: M.stairs,
+    spectatorOut: upperCrowd,
+    spectatorDensity: CROWD.upper,
     uvRepeat: 48,
   });
   let seatPath = fasciaPath;
@@ -700,8 +1048,8 @@ export function buildArena() {
     b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
   }
 
-  buildBoxBoard(boxBoardBuilder, M, roofY);
-  buildCylinderBoard(cylinderBoardBuilder, M, roofY);
+  const boxAnchors = buildBoxBoard(boxBoardBuilder, M, roofY);
+  const cylinderAnchors = buildCylinderBoard(cylinderBoardBuilder, M, roofY);
 
   const lights = [
     { name: 'BowlFill_Center', type: 'point', pos: [0, 10.9, 0], color: [1, 0.95, 0.86], intensity: 35, range: 48 },
@@ -711,13 +1059,31 @@ export function buildArena() {
     { name: 'WarmBowl_West', type: 'point', pos: [-32, 14.5, 0], color: [1.0, 0.84, 0.58], intensity: 24, range: 55 },
   ];
 
-  const filteredSpectators = bowlMeta.spectators.filter(
-    (s) => !(s.x < -24.0 && s.y < 2.55 && Math.abs(s.z) < 8.28)
-  );
-  const allPrims = [...importedPrims, ...b.toPrims(mats)];
+  const suitePrims = suiteBuilder.toPrims(mats);
+  const allPrims = [...importedPrims, ...b.toPrims(mats), ...suitePrims];
+  const spectators = [...filteredSpectators, ...lowerCrowd.added, ...upperCrowd, ...suiteData.spectators];
+  const crowdCounts = {
+    lower: filteredSpectators.length + lowerCrowd.added.length,
+    upper: upperCrowd.length,
+    suite: suiteData.spectators.length,
+  };
   const boards = [
-    { name: 'REA_Board_Box', prims: boxBoardBuilder.toPrims(mats) },
-    { name: 'REA_Board_Cylinder', prims: cylinderBoardBuilder.toPrims(mats), hidden: true },
+    { name: 'REA_Board_Box', prims: boxBoardBuilder.toPrims(mats), anchors: boxAnchors },
+    { name: 'REA_Board_Cylinder', prims: cylinderBoardBuilder.toPrims(mats), anchors: cylinderAnchors, hidden: true },
   ];
-  return { materials: mats, prims: allPrims, boards, textures, spectators: filteredSpectators, lights };
+  return {
+    materials: mats,
+    prims: allPrims,
+    boards,
+    textures,
+    spectators,
+    lights,
+    importedPrims,
+    suitePrims,
+    suiteCenters: suiteData.centers,
+    suiteTriangles: suiteData.triangles,
+    suiteStyle: SUITE_STYLE,
+    crowdCounts,
+    crowdDensity: lowerCrowd.density,
+  };
 }
