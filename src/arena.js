@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { Builder, roundedRectPath, offsetPath, ringStrip, flatDisc } from './geom.js';
+import { Builder, roundedRectPath, offsetPath, ringStrip, flatDisc, stairBowl, inGaps } from './geom.js';
 import { makeMaterial } from './gltf.js';
 import { buildTextures } from './textures.js';
 
@@ -7,6 +7,20 @@ const lin = (c) => {
   const f = (v) => Math.pow((v / 255 + 0.055) / 1.055, 2.4);
   return [f(c[0]), f(c[1]), f(c[2]), c.length > 3 ? c[3] / 255 : 1];
 };
+
+function iceDisc(b, cx, cz, y, r, segs, mat, down = false) {
+  const hn = down ? [0, -1, 0] : [0, 1, 0];
+  for (let i = 0; i < segs; i++) {
+    const a0 = (i / segs) * Math.PI * 2;
+    const a1 = ((i + 1) / segs) * Math.PI * 2;
+    const x0 = cx + Math.cos(a0) * r, z0 = cz + Math.sin(a0) * r;
+    const x1 = cx + Math.cos(a1) * r, z1 = cz + Math.sin(a1) * r;
+    // At a=0 (x = cx + r, closest to the player bench at glTF +X), v=0 (TOP of Sioux logo) and u goes 0->1 from -Z to +Z (un-mirrored!)
+    const u0 = 0.5 + 0.5 * Math.sin(a0), v0 = 0.5 - 0.5 * Math.cos(a0);
+    const u1 = 0.5 + 0.5 * Math.sin(a1), v1 = 0.5 - 0.5 * Math.cos(a1);
+    b.tri([cx, y, cz], [x0, y, z0], [x1, y, z1], mat, hn, [[0.5, 0.5], [u0, v0], [u1, v1]]);
+  }
+}
 
 function cylRing(b, y0, y1, r0, r1, segs, mat, outward = true, uvRepeat = 1) {
   for (let i = 0; i < segs; i++) {
@@ -27,20 +41,6 @@ function cylRing(b, y0, y1, r0, r1, segs, mat, outward = true, uvRepeat = 1) {
       hn,
       outward ? [[u0, 1], [u1, 1], [u1, 0], [u0, 0]] : [[u1, 1], [u0, 1], [u0, 0], [u1, 0]]
     );
-  }
-}
-
-function iceDisc(b, cx, cz, y, r, segs, mat, down = false) {
-  const hn = down ? [0, -1, 0] : [0, 1, 0];
-  for (let i = 0; i < segs; i++) {
-    const a0 = (i / segs) * Math.PI * 2;
-    const a1 = ((i + 1) / segs) * Math.PI * 2;
-    const x0 = cx + Math.cos(a0) * r, z0 = cz + Math.sin(a0) * r;
-    const x1 = cx + Math.cos(a1) * r, z1 = cz + Math.sin(a1) * r;
-    // At a=0 (x = cx + r, closest to the player bench at glTF +X), v=0 (TOP of Sioux logo) and u goes 0->1 from -Z to +Z (un-mirrored!)
-    const u0 = 0.5 + 0.5 * Math.sin(a0), v0 = 0.5 - 0.5 * Math.cos(a0);
-    const u1 = 0.5 + 0.5 * Math.sin(a1), v1 = 0.5 - 0.5 * Math.cos(a1);
-    b.tri([cx, y, cz], [x0, y, z0], [x1, y, z1], mat, hn, [[0.5, 0.5], [u0, v0], [u1, v1]]);
   }
 }
 
@@ -65,6 +65,128 @@ function cylArcScreen(b, y0, y1, r, centerAngle, arcSpan, segs, mat) {
   }
 }
 
+function buildBoxBoard(b, M, roofY) {
+  const sides = ['+z', '-z', '+x', '-x'];
+  const addFrustumFace = (side, topHalf, bottomHalf, topY, bottomY, mat) => {
+    const slope = (topHalf - bottomHalf) / (topY - bottomY);
+    let bl, br, tr, tl, hint;
+    if (side === '+z') {
+      bl = [-bottomHalf, bottomY, bottomHalf];
+      br = [bottomHalf, bottomY, bottomHalf];
+      tr = [topHalf, topY, topHalf];
+      tl = [-topHalf, topY, topHalf];
+      hint = [0, -slope, 1];
+    } else if (side === '-z') {
+      bl = [bottomHalf, bottomY, -bottomHalf];
+      br = [-bottomHalf, bottomY, -bottomHalf];
+      tr = [-topHalf, topY, -topHalf];
+      tl = [topHalf, topY, -topHalf];
+      hint = [0, -slope, -1];
+    } else if (side === '+x') {
+      bl = [bottomHalf, bottomY, bottomHalf];
+      br = [bottomHalf, bottomY, -bottomHalf];
+      tr = [topHalf, topY, -topHalf];
+      tl = [topHalf, topY, topHalf];
+      hint = [1, -slope, 0];
+    } else {
+      bl = [-bottomHalf, bottomY, -bottomHalf];
+      br = [-bottomHalf, bottomY, bottomHalf];
+      tr = [-topHalf, topY, topHalf];
+      tl = [-topHalf, topY, -topHalf];
+      hint = [-1, -slope, 0];
+    }
+    b.quad(bl, br, tr, tl, mat, hint);
+  };
+  const addFrustum = (topHalf, bottomHalf, topY, bottomY, mat) => {
+    for (const side of sides) addFrustumFace(side, topHalf, bottomHalf, topY, bottomY, mat);
+  };
+  const addScreen = (side, width, height, centerY, topHalf, bottomHalf, topY, bottomY, mat) => {
+    const slope = (topHalf - bottomHalf) / (topY - bottomY);
+    const q = Math.sqrt(1 + slope * slope);
+    const radius = bottomHalf + slope * (centerY - bottomY);
+    let center, normal, horizontal, vertical;
+    if (side === '+z') {
+      center = [0, centerY, radius];
+      normal = [0, -slope / q, 1 / q];
+      horizontal = [1, 0, 0];
+      vertical = [0, 1 / q, slope / q];
+    } else if (side === '-z') {
+      center = [0, centerY, -radius];
+      normal = [0, -slope / q, -1 / q];
+      horizontal = [-1, 0, 0];
+      vertical = [0, 1 / q, -slope / q];
+    } else if (side === '+x') {
+      center = [radius, centerY, 0];
+      normal = [1 / q, -slope / q, 0];
+      horizontal = [0, 0, -1];
+      vertical = [slope / q, 1 / q, 0];
+    } else {
+      center = [-radius, centerY, 0];
+      normal = [-1 / q, -slope / q, 0];
+      horizontal = [0, 0, 1];
+      vertical = [-slope / q, 1 / q, 0];
+    }
+    const corner = (h, v) => center.map((c, i) =>
+      c + normal[i] * 0.02 + horizontal[i] * h * width / 2 + vertical[i] * v * height / 2
+    );
+    b.quad(corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1), mat, normal);
+  };
+
+  addFrustum(6.4, 5.3, 20.6, 15.2, M.speakerBlack);
+  for (const side of sides) addScreen(side, 9.8, 4.9, 17.9, 6.4, 5.3, 20.6, 15.2, M.sbMain);
+  addFrustum(5.3, 4.4, 15.2, 14.6, M.speakerBlack);
+  addFrustum(4.4, 3.73, 14.6, 11.3, M.speakerBlack);
+  for (const side of sides) addScreen(side, 6.6, 3.3, 12.95, 4.4, 3.73, 14.6, 11.3, M.sbScore);
+  b.box(0, 20.74, 0, 12.8, 0.28, 12.8, M.speakerBlack);
+  b.box(0, 11.10, 0, 7.5, 0.40, 7.5, M.speakerBlack);
+  const bandRadius = (y) => 4.4 + ((y - 14.6) / 0.6) * 0.9 + 0.02;
+  for (const side of sides) addFrustumFace(side, bandRadius(14.98), bandRadius(14.82), 14.98, 14.82, M.ledRibbon);
+  for (const s of [-1, 1]) {
+    b.panel(0, 20.94, s * 6.42, 11.8, 0.12, 0, s, M.ledRibbon, 0, 0, 3.1, 1);
+    b.panel(s * 6.42, 20.94, 0, 11.8, 0.12, s, 0, M.ledRibbon, 0, 0, 3.1, 1);
+  }
+  for (const hx of [-5.7, 5.7]) {
+    for (const hz of [-5.7, 5.7]) {
+      b.box(hx, (20.88 + roofY) / 2, hz, 0.18, roofY - 20.88, 0.18, M.trussWhite);
+    }
+  }
+  const ringPath = roundedRectPath(3.75, 3.75, 0.22, 4, 4, 6);
+  ringStrip(b, ringPath, 10.82, offsetPath(ringPath, 0.16), 10.82, M.lampGlow, () => [0, -1, 0]);
+  ringStrip(b, offsetPath(ringPath, -0.22), 10.84, offsetPath(ringPath, -0.14), 10.84, M.greenGlow, () => [0, -1, 0]);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const sx = Math.cos(a) * 10.8, sz = Math.sin(a) * 10.8;
+    b.box(sx, 19.15, sz, 0.88, 2.4, 1.05, M.speakerBlack, 0, -a, 0.18);
+    b.box(sx, (roofY + 20.35) / 2, sz, 0.14, roofY - 20.35, 0.14, M.speakerBlack);
+  }
+}
+
+function buildCylinderBoard(b, M, roofY) {
+  const deg = Math.PI / 180;
+  const sbSegs = 32;
+  const sbR = 6.85;
+  cylRing(b, 17.15, 17.95, sbR, sbR, sbSegs, M.sbHeader, true, 4);
+  cylRing(b, 16.10, 17.15, sbR, sbR, sbSegs, M.ledRibbon, true, 1);
+  for (const ang of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+    cylArcScreen(b, 12.55, 16.10, sbR, ang, 78 * deg, 8, M.sbMain);
+    cylArcScreen(b, 12.55, 16.10, sbR, ang + Math.PI / 4, 12 * deg, 2, M.speakerBlack);
+  }
+  cylRing(b, 11.50, 12.55, sbR, sbR, sbSegs, M.ledRibbon, true, 1);
+  iceDisc(b, 0, 0, 17.95, sbR, sbSegs, M.speakerBlack, false);
+  iceDisc(b, 0, 0, 11.50, sbR, sbSegs, M.speakerBlack, true);
+  cylRing(b, 11.32, 11.50, 5.6, 6.7, sbSegs, M.greenGlow, true, 1);
+
+  for (const [hx, hz] of [[-3.6, -3.6], [3.6, -3.6], [-3.6, 3.6], [3.6, 3.6]]) {
+    b.box(hx, (roofY + 17.95) / 2, hz, 0.20, roofY - 17.95, 0.20, M.speakerBlack);
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const sx = Math.cos(a) * 9.0, sz = Math.sin(a) * 9.0;
+    b.box(sx, 18.8, sz, 0.72, 2.1, 0.90, M.speakerBlack, 0, -a, 0.18);
+    b.box(sx, (roofY + 19.8) / 2, sz, 0.12, roofY - 19.8, 0.12, M.speakerBlack);
+  }
+}
+
 export function buildArena() {
   const textures = buildTextures();
   const texIdx = (name) => textures.findIndex((t) => t.name === name);
@@ -84,7 +206,14 @@ export function buildArena() {
       doubleSided: true,
       name: 'seatKellyGreen',
     }),
-    seatFrame: makeMaterial({ color: lin([28, 32, 30]), roughness: 0.55, metallic: 0.35, doubleSided: true, name: 'seatFrame' }),
+    seatFrame: makeMaterial({ color: lin([10, 12, 11]), roughness: 0.55, metallic: 0.35, doubleSided: true, name: 'seatFrame' }),
+    upperSeatRow: makeMaterial({
+      color: [1, 1, 1, 1],
+      texture: texIdx('seat_row_upper'),
+      roughness: 0.48,
+      doubleSided: true,
+      name: 'upperSeatRow',
+    }),
     stairs: makeMaterial({
       color: [1, 1, 1, 1],
       texture: texIdx('stairs_rea'),
@@ -92,8 +221,8 @@ export function buildArena() {
       doubleSided: true,
       name: 'stairs',
     }),
-    tier: makeMaterial({ color: lin([162, 148, 126]), roughness: 0.78, doubleSided: true, name: 'tier' }),
-    concrete: makeMaterial({ color: lin([176, 162, 140]), roughness: 0.78, doubleSided: true, name: 'concrete' }),
+    tier: makeMaterial({ color: lin([190, 178, 154]), roughness: 0.78, doubleSided: true, name: 'tier' }),
+    concrete: makeMaterial({ color: lin([200, 188, 164]), roughness: 0.78, doubleSided: true, name: 'concrete' }),
     rail: makeMaterial({ color: lin([32, 36, 34]), roughness: 0.4, metallic: 0.6, doubleSided: true, name: 'rail' }),
     railGlass: makeMaterial({ color: lin([24, 48, 36]), roughness: 0.15, metallic: 0.7, doubleSided: true, name: 'railGlass' }),
     signs: makeMaterial({
@@ -116,13 +245,19 @@ export function buildArena() {
       name: 'concourse',
     }),
     creamWall: makeMaterial({
-      color: [1, 1, 1, 1],
-      texture: texIdx('wall_brick'),
-      emissiveTexture: texIdx('wall_brick'),
-      emissive: [0.38, 0.34, 0.28],
-      roughness: 0.72,
+      color: lin([229, 220, 201]),
+      emissive: lin([229, 220, 201]).slice(0, 3).map((v) => v * 0.10),
+      roughness: 0.78,
       doubleSided: true,
       name: 'creamWall',
+    }),
+    suiteBand: makeMaterial({
+      color: [1, 1, 1, 1],
+      texture: texIdx('suite_band'),
+      emissive: [0.12, 0.08, 0.04],
+      roughness: 0.32,
+      doubleSided: true,
+      name: 'suiteBand',
     }),
     suiteWarm: makeMaterial({
       color: lin([245, 198, 125]),
@@ -185,27 +320,53 @@ export function buildArena() {
       doubleSided: true,
       name: 'sbMain',
     }),
-    endVideo: makeMaterial({
+    sbScore: makeMaterial({
       color: [1, 1, 1, 1],
-      texture: texIdx('end_video'),
-      emissiveTexture: texIdx('end_video'),
-      emissive: [1.2, 1.2, 1.2],
-      roughness: 0.3,
+      texture: texIdx('scoreboard_score'),
+      emissiveTexture: texIdx('scoreboard_score'),
+      emissive: [1.1, 1.1, 1.1],
+      roughness: 0.25,
       doubleSided: true,
-      name: 'endVideo',
+      name: 'sbScore',
     }),
-    bannerChamp: makeMaterial({
+    bannerAtlas: makeMaterial({
       color: [1, 1, 1, 1],
-      texture: texIdx('banner_champ'),
-      emissiveTexture: texIdx('banner_champ'),
-      emissive: [0.45, 0.45, 0.45],
+      texture: texIdx('banners'),
+      emissiveTexture: texIdx('banners'),
+      emissive: [0.12, 0.12, 0.12],
       roughness: 0.5,
       doubleSided: true,
-      name: 'bannerChamp',
+      name: 'bannerAtlas',
     }),
-    trussWhite: makeMaterial({ color: lin([210, 216, 222]), roughness: 0.55, metallic: 0.25, name: 'trussWhite' }),
-    roofDeck: makeMaterial({ color: lin([148, 156, 164]), roughness: 0.75, doubleSided: true, name: 'roofDeck' }),
+    trussWhite: makeMaterial({
+      color: lin([244, 241, 232]),
+      emissive: lin([244, 241, 232]).slice(0, 3).map((v) => v * 0.08),
+      roughness: 0.55,
+      metallic: 0.25,
+      name: 'trussWhite',
+    }),
+    roofDeck: makeMaterial({
+      color: lin([222, 216, 200]),
+      emissive: lin([222, 216, 200]).slice(0, 3).map((v) => v * 0.18),
+      roughness: 0.75,
+      doubleSided: true,
+      name: 'roofDeck',
+    }),
     speakerBlack: makeMaterial({ color: lin([14, 16, 18]), roughness: 0.6, doubleSided: true, name: 'speakerBlack' }),
+    lampGlow: makeMaterial({
+      color: [1, 1, 1, 1],
+      emissive: [2.5, 2.5, 2.5],
+      roughness: 0.15,
+      doubleSided: true,
+      name: 'lampGlow',
+    }),
+    sconceGlow: makeMaterial({
+      color: lin([255, 218, 145]),
+      emissive: lin([255, 213, 140]).slice(0, 3),
+      roughness: 0.2,
+      doubleSided: true,
+      name: 'sconceGlow',
+    }),
     greenGlow: makeMaterial({
       color: lin([20, 255, 110]),
       emissive: lin([0, 240, 100]).slice(0, 3),
@@ -215,7 +376,8 @@ export function buildArena() {
   };
   const mats = Object.values(M);
   const b = new Builder();
-  const deg = Math.PI / 180;
+  const boxBoardBuilder = new Builder();
+  const cylinderBoardBuilder = new Builder();
 
   // 1. LOAD EXTRACTED BOWL, STAIRS, RAILINGS, 3,000+ 3D STADIUM CHAIRS, BENCHES, AND SPECTATORS
   const bowlMeta = JSON.parse(readFileSync('assets/bowl.json', 'utf8'));
@@ -234,7 +396,6 @@ export function buildArena() {
     Wall: M.wall,
     TunnelDark: M.tunnel,
     Dark: M.dark,
-    WallWin: M.creamWall,
     RedPaint: M.kellyCap,
     Rubber: M.dark,
     PortalBlue: M.kellyCap,
@@ -248,7 +409,7 @@ export function buildArena() {
 
   const importedPrims = [];
   for (const pm of bowlMeta.prims) {
-    if (pm.mat === 'Net' || pm.mat === 'RedPaint') continue;
+    if (pm.mat === 'Net' || pm.mat === 'RedPaint' || pm.mat === 'WallWin') continue;
     const targetMat = matMap[pm.mat] ?? M.dark;
     const matIndex = mats.indexOf(targetMat);
     let off = pm.offset;
@@ -298,11 +459,6 @@ export function buildArena() {
       }
       filteredIdx.push(i0, i1, i2);
     }
-    // Flip WallWin U horizontally so the Fighting Sioux head in every brick square looks LEFT!
-    if (pm.mat === 'WallWin') {
-      for (let i = 0; i < uv.length; i += 2) uv[i] = 38.0 - uv[i];
-    }
-
     importedPrims.push({ positions: pos, normals: norm, uvs: uv, indices: filteredIdx, material: matIndex });
 
     // Close the far back end (r = 45.12..68.36, y = 5.08..7.18) of each of the 13 fan tunnels with a single exact back-wall quad (zero clipping!)
@@ -327,24 +483,6 @@ export function buildArena() {
       }
     }
 
-    // Clone Fascia_Ribbon (+7.65m up) to create the upper 360-degree electric LED banner right at the top of the wall!
-    if (pm.mat === 'Ribbon1') {
-      const upPos = new Array(pos.length);
-      for (let i = 0; i < pos.length; i += 3) {
-        const vx = pos[i], vy = pos[i + 1], vz = pos[i + 2];
-        const l = Math.hypot(vx, vz) || 1;
-        upPos[i] = vx - (vx / l) * 0.04;
-        upPos[i + 1] = vy + 7.65;
-        upPos[i + 2] = vz - (vz / l) * 0.04;
-      }
-      importedPrims.push({
-        positions: upPos,
-        normals: [...norm],
-        uvs: [...uv],
-        indices: [...idx],
-        material: mats.indexOf(M.ledRibbon),
-      });
-    }
   }
 
   // 2. RINK DETAILS: Real Fighting Sioux center-ice logo (TOP of logo at +X closest to the player bench!) + 4 neutral-zone logos
@@ -413,17 +551,84 @@ export function buildArena() {
     }
   }
 
-  // 3. ARCHED WHITE STEEL ROOF TRUSSES + CEILING + CATWALKS + GREEN FLOODLIGHTS (seated on the y=22.05m wall)
-  const roofY = 22.05;
-  const roofOuter = roundedRectPath(42.2, 65.4, 24.0, 10, 16, 10);
+  const roofY = 25.5;
+  const suitePath = roundedRectPath(41.52, 64.76, 31.58, 16, 28, 16);
+  const fasciaPath = offsetPath(suitePath, -0.02);
+  ringStrip(b, fasciaPath, 10.60, fasciaPath, 13.15, M.suiteBand, (m) => [-m.x, 0, -m.z], null, null, fasciaPath.totalLen / 3);
+
+  ringStrip(b, fasciaPath, 14.25, fasciaPath, 15.10, M.concrete, (m) => [-m.x, 0, -m.z]);
+  const parapetPath = offsetPath(fasciaPath, 0.15);
+  ringStrip(b, fasciaPath, 15.10, parapetPath, 15.10, M.concrete, () => [0, 1, 0]);
+  ringStrip(b, parapetPath, 15.10, parapetPath, 15.45, M.railGlass, (m) => [-m.x, 0, -m.z]);
+  ringStrip(b, offsetPath(parapetPath, -0.10), 15.45, offsetPath(parapetPath, 0.10), 15.45, M.rail, () => [0, 1, 0]);
+
+  const upperGaps = Array.from({ length: 12 }, (_, i) => {
+    const center = Math.PI / 4 + i * (Math.PI / 6);
+    return [center - 0.018, center + 0.018];
+  });
+  const upperSteps = stairBowl(b, {
+    path: fasciaPath,
+    y: 15.10,
+    rows: 13,
+    tread: 0.85,
+    riser: 0.55,
+    seatMat: M.tier,
+    riserMat: M.tier,
+    gaps: upperGaps,
+    gapMat: M.stairs,
+    uvRepeat: 48,
+  });
+  let seatPath = fasciaPath;
+  let seatY = 15.10;
+  for (let row = 0; row < 13; row++) {
+    const seatBase = offsetPath(seatPath, 0.25);
+    const seatTop = offsetPath(seatPath, 0.33);
+    for (let i = 0; i < seatPath.length; i++) {
+      const j = (i + 1) % seatPath.length;
+      const midX = (seatPath[i].x + seatPath[j].x) * 0.5;
+      const midZ = (seatPath[i].z + seatPath[j].z) * 0.5;
+      if (inGaps(upperGaps, Math.atan2(midZ, midX))) continue;
+      const u0 = (seatPath[i].s ?? i) / 0.52;
+      const u1 = (j === 0 ? seatPath.totalLen : (seatPath[j].s ?? j)) / 0.52;
+      const bottomY = seatY + 0.58;
+      b.quad(
+        [seatBase[i].x, bottomY, seatBase[i].z],
+        [seatBase[j].x, bottomY, seatBase[j].z],
+        [seatTop[j].x, bottomY + 0.50, seatTop[j].z],
+        [seatTop[i].x, bottomY + 0.50, seatTop[i].z],
+        M.upperSeatRow,
+        [-midX, 0, -midZ],
+        [[u0, 1], [u1, 1], [u1, 0], [u0, 0]]
+      );
+    }
+    seatPath = offsetPath(seatPath, 0.85);
+    seatY += 0.55;
+  }
+
+  const backWallPath = offsetPath(upperSteps.path, 0.65);
+  ringStrip(b, backWallPath, upperSteps.y, backWallPath, upperSteps.y + 0.85, M.dark, (m) => [-m.x, 0, -m.z]);
+  ringStrip(b, backWallPath, upperSteps.y + 0.85, backWallPath, roofY, M.creamWall, (m) => [-m.x, 0, -m.z]);
+  for (let i = 0; i < 20; i++) {
+    const p = backWallPath[Math.floor(i * backWallPath.length / 20)];
+    b.panel(p.x - p.nx * 0.03, 23.65, p.z - p.nz * 0.03, 0.24, 0.40, -p.nx, -p.nz, M.sconceGlow);
+  }
+
+  const roofOuter = roundedRectPath(54, 77, 43, 14, 22, 16);
   flatDisc(b, roofOuter, roofY + 2.4, M.roofDeck, true);
   flatDisc(b, roofOuter, roofY + 2.6, M.roofDeck, false);
   ringStrip(b, roofOuter, roofY - 0.1, roofOuter, roofY + 2.6, M.dark, (m) => [-m.x, 0, -m.z]);
 
-  const trussZs = [-50, -37.5, -25, -12.5, 0, 12.5, 25, 37.5, 50];
+  const roofCenterX = 54 - 43;
+  const roofCornerZ = 77 - 43;
+  const halfSpanAt = (z) => {
+    const dz = Math.max(0, Math.abs(z) - roofCornerZ);
+    return dz === 0 ? 54 : roofCenterX + Math.sqrt(Math.max(0, 43 * 43 - dz * dz));
+  };
+  const trussZs = [-67, -54, -41, -28, -15, 0, 15, 28, 41, 54, 67];
+  const purlinXs = Array.from({ length: 21 }, (_, i) => (i - 10) * 5);
   for (const tz of trussZs) {
-    const halfSpan = Math.abs(tz) > 40 ? 35 : 41.2;
-    const segs = 12;
+    const halfSpan = halfSpanAt(tz);
+    const segs = 16;
     const topPts = [], botPts = [];
     for (let i = 0; i <= segs; i++) {
       const u = (i / segs) * 2 - 1;
@@ -440,84 +645,68 @@ export function buildArena() {
     }
     b.beam(botPts[segs], topPts[segs], 0.22, M.trussWhite);
 
-    if (Math.abs(tz) <= 38) {
-      const lightXs = Math.abs(tz) > 30 ? [-20, -10, 10, 20] : [-18, -8, 8, 18];
-      for (const lx of lightXs) {
-        const u = lx / halfSpan;
-        const ly = roofY - 0.6 + (1 - u * u) * 1.9;
-        b.box(lx, ly, tz, 0.85, 0.32, 0.65, M.speakerBlack);
-        b.box(lx, ly - 0.18, tz, 0.72, 0.08, 0.52, M.greenGlow);
+    for (const lx of purlinXs) {
+      if (Math.abs(lx) > halfSpan - 0.7) continue;
+      const u = lx / halfSpan;
+      const ly = roofY - 0.5 + (1 - u * u) * 1.9;
+      b.box(lx, ly - 0.17, tz, 1.05, 0.28, 0.72, M.speakerBlack);
+      b.box(lx, ly - 0.34, tz, 1.0, 0.06, 0.60, M.lampGlow);
+    }
+  }
+
+  for (const px of purlinXs) {
+    const dx = Math.max(0, Math.abs(px) - roofCenterX);
+    const endZ = roofCornerZ + Math.sqrt(Math.max(0, 43 * 43 - dx * dx));
+    b.box(px, roofY + 2.05, 0, 0.22, 0.22, endZ * 2, M.trussWhite);
+  }
+  for (const cx of [-12, 12]) {
+    b.box(cx, roofY - 0.05, 0, 1.3, 0.14, 60, M.trussWhite);
+    b.box(cx - 0.6, roofY + 0.45, 0, 0.08, 0.85, 60, M.trussWhite);
+    b.box(cx + 0.6, roofY + 0.45, 0, 0.08, 0.85, 60, M.trussWhite);
+  }
+
+  const bannerAnchorX = (x) => {
+    for (let distance = 0; distance <= 2; distance += 0.05) {
+      for (const direction of [1, -1]) {
+        const candidate = x + direction * distance;
+        if (purlinXs.every((px) => Math.abs(candidate - px) >= 0.8)) return candidate;
       }
     }
-  }
+    return x;
+  };
 
-  for (const px of [-28, -16, -7.5, 7.5, 16, 28]) {
-    b.box(px, roofY + 1.15, 0, 0.30, 0.30, 104, M.trussWhite);
-  }
-  for (const cx of [-12.0, 12.0]) {
-    b.box(cx, roofY - 0.05, 0, 1.3, 0.14, 100, M.trussWhite);
-    b.box(cx - 0.6, roofY + 0.45, 0, 0.08, 0.85, 100, M.trussWhite);
-    b.box(cx + 0.6, roofY + 0.45, 0, 0.08, 0.85, 100, M.trussWhite);
-  }
-
-  // 4. END-ZONE FIGHTING SIOUX VIDEO BOARDS (no extra wall banners on the far walls)
-  for (const sz of [-1, 1]) {
-    const ez = sz * 64.2;
-    const ey = 17.6;
-    b.box(0, ey, ez, 13.8, 4.4, 0.45, M.speakerBlack);
-    b.panel(0, ey, ez - sz * 0.28, 13.2, 4.0, 0, -sz, M.endVideo);
-  }
-
-  // Hanging rafter championship banners: one clean row over each end on the z = +-37.5 steel trusses, strictly inside x = [-6.8..+6.8] (clears catwalks at +-12, purlins at +-7.5, and lights at +-10!)
-  for (const bz of [-37.5, 37.5]) {
-    const sz = Math.sign(bz);
-    const halfSpan = 41.2;
-    const xs = [-5.7, -3.4, -1.1, 1.1, 3.4, 5.7];
-    for (const bx of xs) {
-      const u = bx / halfSpan;
-      const chordY = roofY - 0.5 + (1 - u * u) * 1.9;
-      const banH = 3.8, banW = 1.85;
-      const topY = chordY - 0.55;
-      const cy = topY - banH / 2;
-      b.box(bx, topY + 0.04, bz, banW + 0.14, 0.07, 0.07, M.trussWhite);
-      b.box(bx - banW * 0.42, (chordY + topY) / 2, bz, 0.05, chordY - topY + 0.12, 0.05, M.trussWhite);
-      b.box(bx + banW * 0.42, (chordY + topY) / 2, bz, 0.05, chordY - topY + 0.12, 0.05, M.trussWhite);
-      b.panel(bx, cy, bz, banW, banH, 0, -sz, M.bannerChamp);
+  for (let i = 0; i < 7; i++) {
+    const bx = (i - 3) * 3.1;
+    const bz = 24;
+    const banW = 2.6, banH = 5.4, topY = 23;
+    const index = i, col = index % 8, row = Math.floor(index / 8);
+    for (const dx of [-0.85, 0.85]) {
+      const hx = bx + dx;
+      b.beam([bannerAnchorX(hx), roofY + 2.2, 28], [hx, topY, bz], 0.05, M.trussWhite);
     }
+    b.panel(bx, topY - banH / 2, bz, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+    b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+  }
+  for (let i = 0; i < 14; i++) {
+    const bx = (i - 6.5) * 2.9;
+    const bz = 45;
+    const banW = 2.6, banH = 5.4, topY = 23;
+    const index = 7 + i, col = index % 8, row = Math.floor(index / 8);
+    for (const dx of [-0.85, 0.85]) {
+      const hx = bx + dx;
+      b.beam([bannerAnchorX(hx), roofY + 2.2, 41], [hx, topY, bz], 0.05, M.trussWhite);
+    }
+    b.panel(bx, topY - banH / 2, bz, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+    b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
   }
 
-  // 5. CENTER-HUNG CYLINDRICAL JUMBOTRON (#45 RYAN POLASKY SPOTLIGHT)
-  const sbSegs = 32;
-  const sbR = 6.85;
-  // Top glowing green marquee ring: "RALPH ENGELSTAD ARENA"
-  cylRing(b, 17.15, 17.95, sbR, sbR, sbSegs, M.sbHeader, true, 4);
-  // Upper full-color electric LED ad ring (uvRepeat=1 on 4096x128 32:1 texture = 43m / 1.05m -> exact 1:1 aspect ratio!)
-  cylRing(b, 16.10, 17.15, sbR, sbR, sbSegs, M.ledRibbon, true, 1);
-  // Middle band (y = 12.55 .. 16.10): 4 curved 78-deg Ryan Polasky screens + 4 curved 12-deg dark corner struts
-  for (const ang of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
-    cylArcScreen(b, 12.55, 16.10, sbR, ang, 78 * deg, 8, M.sbMain);
-    cylArcScreen(b, 12.55, 16.10, sbR, ang + Math.PI / 4, 12 * deg, 2, M.speakerBlack);
-  }
-  // Lower full-color electric LED ad ring (uvRepeat=1 on 4096x128 32:1 texture!)
-  cylRing(b, 11.50, 12.55, sbR, sbR, sbSegs, M.ledRibbon, true, 1);
-  iceDisc(b, 0, 0, 17.95, sbR, sbSegs, M.speakerBlack, false);
-  iceDisc(b, 0, 0, 11.50, sbR, sbSegs, M.speakerBlack, true);
-  cylRing(b, 11.32, 11.50, 5.6, 6.7, sbSegs, M.greenGlow, true, 1);
-
-  for (const [hx, hz] of [[-3.6, -3.6], [3.6, -3.6], [-3.6, 3.6], [3.6, 3.6]]) {
-    b.box(hx, (roofY + 17.95) / 2, hz, 0.20, roofY - 17.95, 0.20, M.speakerBlack);
-  }
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-    const sx = Math.cos(a) * 9.0, sz = Math.sin(a) * 9.0;
-    b.box(sx, 18.8, sz, 0.72, 2.1, 0.90, M.speakerBlack, 0, -a, 0.18);
-    b.box(sx, (roofY + 19.8) / 2, sz, 0.12, roofY - 19.8, 0.12, M.speakerBlack);
-  }
+  buildBoxBoard(boxBoardBuilder, M, roofY);
+  buildCylinderBoard(cylinderBoardBuilder, M, roofY);
 
   const lights = [
-    { name: 'GreenSpill_Center', type: 'point', pos: [0, 10.9, 0], color: [0.05, 0.95, 0.42], intensity: 35, range: 48 },
-    { name: 'GreenSpill_North', type: 'point', pos: [0, 19.5, 26], color: [0.08, 0.9, 0.4], intensity: 28, range: 55 },
-    { name: 'GreenSpill_South', type: 'point', pos: [0, 19.5, -26], color: [0.08, 0.9, 0.4], intensity: 28, range: 55 },
+    { name: 'BowlFill_Center', type: 'point', pos: [0, 10.9, 0], color: [1, 0.95, 0.86], intensity: 35, range: 48 },
+    { name: 'BowlFill_North', type: 'point', pos: [0, 19.5, 26], color: [1, 0.95, 0.86], intensity: 28, range: 55 },
+    { name: 'BowlFill_South', type: 'point', pos: [0, 19.5, -26], color: [1, 0.95, 0.86], intensity: 28, range: 55 },
     { name: 'WarmBowl_East', type: 'point', pos: [32, 14.5, 0], color: [1.0, 0.84, 0.58], intensity: 24, range: 55 },
     { name: 'WarmBowl_West', type: 'point', pos: [-32, 14.5, 0], color: [1.0, 0.84, 0.58], intensity: 24, range: 55 },
   ];
@@ -526,5 +715,9 @@ export function buildArena() {
     (s) => !(s.x < -24.0 && s.y < 2.55 && Math.abs(s.z) < 8.28)
   );
   const allPrims = [...importedPrims, ...b.toPrims(mats)];
-  return { materials: mats, prims: allPrims, textures, spectators: filteredSpectators, lights };
+  const boards = [
+    { name: 'REA_Board_Box', prims: boxBoardBuilder.toPrims(mats) },
+    { name: 'REA_Board_Cylinder', prims: cylinderBoardBuilder.toPrims(mats), hidden: true },
+  ];
+  return { materials: mats, prims: allPrims, boards, textures, spectators: filteredSpectators, lights };
 }

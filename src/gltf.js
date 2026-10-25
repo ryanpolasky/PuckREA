@@ -14,7 +14,7 @@ export function makeMaterial(opts = {}) {
   };
 }
 
-export function buildGLB(materials, prims, { textures = [], spectators = [], lights = [] } = {}) {
+export function buildGLB(materials, prims, { boards = [], textures = [], spectators = [], lights = [] } = {}) {
   const binParts = [];
   const bufferViews = [];
   const accessors = [];
@@ -50,7 +50,7 @@ export function buildGLB(materials, prims, { textures = [], spectators = [], lig
     sampler: t.clamp ? 1 : 0,
   }));
 
-  const primitives = prims.map((p) => {
+  const buildPrimitives = (sourcePrims) => sourcePrims.map((p) => {
     // Weld identical (pos, norm, uv) vertices to cut GLB size by >50%
     const rawVerts = p.positions.length / 3;
     const hasUV = p.uvs && p.uvs.length === rawVerts * 2;
@@ -103,7 +103,20 @@ export function buildGLB(materials, prims, { textures = [], spectators = [], lig
     };
   });
 
+  const meshes = [{ name: 'RalphEngelstadArena', primitives: buildPrimitives(prims) }];
   const nodes = [{ mesh: 0, name: 'Arena', children: [] }];
+
+  for (const board of boards) {
+    const mesh = meshes.length;
+    meshes.push({ name: board.name, primitives: buildPrimitives(board.prims) });
+    const node = nodes.length;
+    nodes[0].children.push(node);
+    nodes.push({
+      name: board.name,
+      mesh,
+      ...(board.hidden ? { scale: [0, 0, 0] } : {}),
+    });
+  }
 
   if (spectators.length) {
     const specParentIdx = nodes.length;
@@ -161,7 +174,7 @@ export function buildGLB(materials, prims, { textures = [], spectators = [], lig
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes,
-    meshes: [{ name: 'RalphEngelstadArena', primitives }],
+    meshes,
     materials: materials.map((m) => {
       const pbr = {
         baseColorFactor: m.baseColor,

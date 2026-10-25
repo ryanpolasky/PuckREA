@@ -214,7 +214,7 @@ export function ringStrip(builder, pathA, yA, pathB, yB, mat, hintDir, gaps, gap
   }
 }
 
-export function stairBowl(builder, { path, y, rows, tread, riser, seatMat, riserMat, gaps, gapMat, spectatorOut, spectatorRows }) {
+export function stairBowl(builder, { path, y, rows, tread, riser, seatMat, riserMat, gaps, gapMat, spectatorOut, spectatorRows, uvRepeat = 48 }) {
   let cur = path;
   let cy = y;
   for (let i = 0; i < rows; i++) {
@@ -228,8 +228,8 @@ export function stairBowl(builder, { path, y, rows, tread, riser, seatMat, riser
       const inGap = inGaps(gaps, angleOf(mid));
       const l = Math.hypot(mid.x, mid.z) || 1;
       const segLen = Math.hypot(cur[j].x - cur[k].x, cur[j].z - cur[k].z);
-      const u0 = ((cur[k].s ?? k) / total) * 48;
-      const u1 = j === 0 ? 48 : ((cur[j].s ?? j) / total) * 48;
+      const u0 = ((cur[k].s ?? k) / total) * uvRepeat;
+      const u1 = j === 0 ? uvRepeat : ((cur[j].s ?? j) / total) * uvRepeat;
       if (inGap && gapMat) {
         // Two half-riser / half-tread concrete steps per seating row so aisles look like real stadium stairs
         const h2 = riser * 0.5;

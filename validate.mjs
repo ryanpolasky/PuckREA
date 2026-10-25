@@ -20,19 +20,37 @@ if (binOff + binLen !== buf.length) throw new Error('bin length mismatch');
 if (gltf.buffers[0].byteLength !== binLen) throw new Error('buffer byteLength mismatch');
 
 let verts = 0, tris = 0;
-for (const prim of gltf.meshes[0].primitives) {
-  const pos = gltf.accessors[prim.attributes.POSITION];
-  const uv = gltf.accessors[prim.attributes.TEXCOORD_0];
-  const idx = gltf.accessors[prim.indices];
-  verts += pos.count;
-  tris += idx.count / 3;
-  if (!pos.min || !pos.max) throw new Error('POSITION missing min/max');
-  if (!uv || uv.count !== pos.count) throw new Error('TEXCOORD_0 count mismatch');
+for (const mesh of gltf.meshes) {
+  for (const prim of mesh.primitives) {
+    const pos = gltf.accessors[prim.attributes.POSITION];
+    const uv = gltf.accessors[prim.attributes.TEXCOORD_0];
+    const idx = gltf.accessors[prim.indices];
+    verts += pos.count;
+    tris += idx.count / 3;
+    if (!pos.min || !pos.max) throw new Error('POSITION missing min/max');
+    if (!uv || uv.count !== pos.count) throw new Error('TEXCOORD_0 count mismatch');
+  }
 }
 for (const bv of gltf.bufferViews) {
   if (bv.byteOffset + bv.byteLength > binLen) throw new Error('bufferView out of range');
 }
 const specNodes = gltf.nodes.filter((n) => n.name && n.name.startsWith('Spectator.'));
+const arenaNodeIndex = gltf.nodes.findIndex((n) => n.name === 'Arena');
+if (arenaNodeIndex < 0) throw new Error('Arena node missing');
+const arenaNode = gltf.nodes[arenaNodeIndex];
+const boxNodeIndex = gltf.nodes.findIndex((n) => n.name === 'REA_Board_Box');
+const cylinderNodeIndex = gltf.nodes.findIndex((n) => n.name === 'REA_Board_Cylinder');
+if (boxNodeIndex < 0 || cylinderNodeIndex < 0) throw new Error('board nodes missing');
+const boxNode = gltf.nodes[boxNodeIndex];
+const cylinderNode = gltf.nodes[cylinderNodeIndex];
+if (!arenaNode.children?.includes(boxNodeIndex) || !arenaNode.children?.includes(cylinderNodeIndex)) {
+  throw new Error('board nodes must be children of Arena');
+}
+if (gltf.meshes[boxNode.mesh]?.name !== 'REA_Board_Box' || gltf.meshes[cylinderNode.mesh]?.name !== 'REA_Board_Cylinder') {
+  throw new Error('board meshes missing');
+}
+if (JSON.stringify(cylinderNode.scale) !== '[0,0,0]') throw new Error('cylinder board must default to scale zero');
 const manifest = JSON.parse(readFileSync('dist/Ralph Engelstad Arena/Ralph Engelstad Arena.al.json', 'utf8'));
-console.log(`GLB valid: ${verts} verts, ${tris} tris, ${gltf.materials.length} materials, ${(gltf.textures || []).length} textures, ${specNodes.length} spectator spots`);
+console.log(`GLB valid: ${gltf.meshes.length} meshes, ${verts} verts, ${tris} tris, ${gltf.materials.length} materials, ${(gltf.textures || []).length} textures, ${specNodes.length} spectator spots`);
+console.log(`board nodes: ${boxNode.name} (visible), ${cylinderNode.name} (scale 0)`);
 console.log(`manifest: "${manifest.name}" by ${manifest.author} -> ${manifest.model}`);

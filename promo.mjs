@@ -2,11 +2,32 @@ import http from 'http';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { execFileSync } from 'child_process';
 import path from 'path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const { chromium } = await import('file:///C:/Projects/Marralhinha/node_modules/playwright/index.mjs');
+const REPO_DIR = path.dirname(fileURLToPath(import.meta.url));
+const OUT_DIR = path.resolve(process.env.OUT_DIR || path.join(REPO_DIR, 'marketing'));
+const FRAMES_DIR = path.join(OUT_DIR, '_frames');
+const WIDTH = Number(process.env.W || 1920);
+const HEIGHT = Number(process.env.H || 1080);
+const BOARD_MODE = process.env.BOARD === 'cylinder' ? 'cylinder' : 'box';
+const ARENA_FILE = path.join(REPO_DIR, 'dist', 'Ralph Engelstad Arena', 'ralph_engelstad.glb');
+const ICE_FILE = path.join(REPO_DIR, 'assets', 'generated', 'puck_ice_surface.png');
+const PLAYWRIGHT_FALLBACK = 'file:///C:/Projects/Marralhinha/node_modules/playwright/index.mjs';
 
-const OUT_DIR = 'C:/Projects/PuckREA/marketing';
-const FRAMES_DIR = 'C:/Projects/PuckREA/marketing/_frames';
+let playwright;
+if (process.env.PLAYWRIGHT_MODULE) {
+  const modulePath = process.env.PLAYWRIGHT_MODULE;
+  const moduleSpecifier = path.isAbsolute(modulePath) ? pathToFileURL(modulePath).href : modulePath;
+  playwright = await import(moduleSpecifier);
+} else {
+  try {
+    playwright = await import('playwright');
+  } catch {
+    playwright = await import(PLAYWRIGHT_FALLBACK);
+  }
+}
+const { chromium } = playwright;
+
 mkdirSync(OUT_DIR, { recursive: true });
 mkdirSync(FRAMES_DIR, { recursive: true });
 
@@ -36,7 +57,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-const W = 1920, H = 1080;
+const W = ${WIDTH}, H = ${HEIGHT};
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(1);
@@ -172,6 +193,11 @@ for (const sz of [-1, 1]) {
 // Load ralph_engelstad.glb and populate Spectator.* nodes with Fighting Sioux fans (kelly green, white, dark green jerseys)
 const loader = new GLTFLoader();
 const gltf = await new Promise((res, rej) => loader.load('/arena.glb', res, undefined, rej));
+const boardMode = ${JSON.stringify(BOARD_MODE)};
+gltf.scene.traverse((node) => {
+  if (node.name && node.name.startsWith('REA_Board_Box')) node.scale.setScalar(boardMode === 'cylinder' ? 0 : 1);
+  if (node.name && node.name.startsWith('REA_Board_Cylinder')) node.scale.setScalar(boardMode === 'cylinder' ? 1 : 0);
+});
 scene.add(gltf.scene);
 
 const jerseyMats = [
@@ -227,10 +253,10 @@ const server = http.createServer((req, res) => {
     res.end(HTML);
   } else if (req.url === '/arena.glb') {
     res.writeHead(200, { 'Content-Type': 'model/gltf-binary' });
-    res.end(readFileSync('C:/Projects/PuckREA/dist/Ralph Engelstad Arena/ralph_engelstad.glb'));
+    res.end(readFileSync(ARENA_FILE));
   } else if (req.url === '/ice.png') {
     res.writeHead(200, { 'Content-Type': 'image/png' });
-    res.end(readFileSync('C:/Projects/PuckREA/assets/generated/puck_ice_surface.png'));
+    res.end(readFileSync(ICE_FILE));
   } else {
     res.writeHead(404);
     res.end();
@@ -241,11 +267,16 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 console.log('Server listening on port', port);
 
+const chromeArgs = ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist'];
+if (process.env.CHROME_PATH) {
+  chromeArgs.push('--use-angle=swiftshader', '--enable-unsafe-swiftshader');
+}
 const browser = await chromium.launch({
   headless: true,
-  args: ['--use-gl=angle', '--enable-webgl', '--ignore-gpu-blocklist'],
+  ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
+  args: chromeArgs,
 });
-const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT } });
 await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.__READY === true, { timeout: 30000 });
 
@@ -274,29 +305,56 @@ const shots = [
     look: [0, 9.0, -10],
     fov: 58,
   },
+  {
+    file: 'shot_5_player_ice.png',
+    eye: [0, 1.8, -30],
+    look: [0, 7, 20],
+    fov: 70,
+  },
+  {
+    file: 'shot_6_bench_ice.png',
+    eye: [16, 1.8, 4],
+    look: [-30, 9, -6],
+    fov: 70,
+  },
+  {
+    file: 'shot_7_ref_endupper.png',
+    eye: [0, 17, 60],
+    look: [0, 5, 0],
+    fov: 70,
+  },
+  {
+    file: 'shot_8_ref_sec115.png',
+    eye: [-27, 3.6, -22],
+    look: [8, 10, 30],
+    fov: 68,
+  },
 ];
 
 for (const s of shots) {
+  const shotStart = performance.now();
   await page.evaluate(({ eye, look, fov }) => window.renderView(eye, look, fov), s);
   const outPath = path.join(OUT_DIR, s.file);
   await page.screenshot({ path: outPath });
-  console.log('Captured', outPath);
+  console.log(`Captured ${outPath} (${((performance.now() - shotStart) / 1000).toFixed(2)}s)`);
 }
 
 // Render 180 frames (6 seconds @ 30fps) of a smooth wide-angle arena sweep for the video & GIF
-const totalFrames = 180;
-for (let f = 0; f < totalFrames; f++) {
-  const t = f / totalFrames;
-  const ang = -0.85 + t * 2.1;
-  const radX = 27 + 4 * Math.sin(t * Math.PI);
-  const radZ = 38 + 5 * Math.cos(t * Math.PI);
-  const eye = [Math.sin(ang) * radX, 8.2 + 3.5 * Math.sin(t * Math.PI), -Math.cos(ang) * radZ];
-  const look = [0, 10.5 - 1.5 * Math.sin(t * Math.PI), 0];
-  await page.evaluate(({ eye, look }) => window.renderView(eye, look, 58), { eye, look });
-  const framePath = path.join(FRAMES_DIR, `frame_${String(f).padStart(4, '0')}.jpg`);
-  await page.screenshot({ path: framePath, type: 'jpeg', quality: 92 });
+if (process.env.SHOTS_ONLY !== '1') {
+  const totalFrames = 180;
+  for (let f = 0; f < totalFrames; f++) {
+    const t = f / totalFrames;
+    const ang = -0.85 + t * 2.1;
+    const radX = 27 + 4 * Math.sin(t * Math.PI);
+    const radZ = 38 + 5 * Math.cos(t * Math.PI);
+    const eye = [Math.sin(ang) * radX, 8.2 + 3.5 * Math.sin(t * Math.PI), -Math.cos(ang) * radZ];
+    const look = [0, 10.5 - 1.5 * Math.sin(t * Math.PI), 0];
+    await page.evaluate(({ eye, look }) => window.renderView(eye, look, 58), { eye, look });
+    const framePath = path.join(FRAMES_DIR, `frame_${String(f).padStart(4, '0')}.jpg`);
+    await page.screenshot({ path: framePath, type: 'jpeg', quality: 92 });
+  }
+  console.log('Captured', totalFrames, 'animation frames');
 }
-console.log('Captured', totalFrames, 'animation frames');
 
 await browser.close();
 server.close();
