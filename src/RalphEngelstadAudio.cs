@@ -51,7 +51,7 @@ namespace RalphEngelstadAudio
     public class ArenaAudioController : MonoBehaviour
     {
         private const string BoardCylinderPreference = "REA_BoardCylinder";
-        private static bool _useCylinder = PlayerPrefs.GetInt(BoardCylinderPreference, 0) != 0;
+        private static bool _useCylinder;
 
         private AudioClip _goalHorn;
         private AudioClip _standUp;
@@ -78,6 +78,7 @@ namespace RalphEngelstadAudio
 
         private void Awake()
         {
+            _useCylinder = PlayerPrefs.GetInt(BoardCylinderPreference, 0) != 0;
             string dir = FindAudioDirectory();
             if (dir != null)
             {
