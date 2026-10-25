@@ -812,6 +812,13 @@ export function buildArena() {
       doubleSided: true,
       name: 'lampGlow',
     }),
+    roofFloodGlow: makeMaterial({
+      color: [1, 1, 1, 1],
+      emissive: [2.5, 2.5, 2.5],
+      roughness: 0.15,
+      doubleSided: true,
+      name: 'roofFloodGlow',
+    }),
     sconceGlow: makeMaterial({
       color: lin([255, 218, 145]),
       emissive: lin([255, 213, 140]).slice(0, 3),
@@ -1149,7 +1156,7 @@ export function buildArena() {
       const u = lx / halfSpan;
       const ly = roofY - 0.5 + (1 - u * u) * 1.9;
       b.box(lx, ly - 0.17, tz, 1.05, 0.28, 0.72, M.speakerBlack);
-      b.box(lx, ly - 0.34, tz, 1.0, 0.06, 0.60, M.lampGlow);
+      b.box(lx, ly - 0.34, tz, 1.0, 0.06, 0.60, M.roofFloodGlow);
     }
   }
 
@@ -1201,6 +1208,13 @@ export function buildArena() {
 
   const boxAnchors = buildBoxBoard(boxBoardBuilder, M, roofY);
   const cylinderAnchors = buildCylinderBoard(cylinderBoardBuilder, M, roofY);
+  const nightSpots = [
+    [-11, 22, -18], [-11, 22, 18], [11, 22, -18],
+    [11, 22, 18], [0, 22, -30], [0, 22, 30],
+  ].map((translation, i) => ({
+    name: `REA_NightSpot_${i + 1}`,
+    translation,
+  }));
 
   const lights = [
     { name: 'BowlFill_Center', type: 'point', pos: [0, 10.9, 0], color: [1, 0.95, 0.86], intensity: 35, range: 48 },
@@ -1237,6 +1251,7 @@ export function buildArena() {
     materials: mats,
     prims: allPrims,
     boards,
+    nightSpots,
     textures,
     spectators,
     lights,

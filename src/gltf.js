@@ -7,14 +7,13 @@ export function makeMaterial(opts = {}) {
     doubleSided: opts.doubleSided ?? false,
     alphaMode: opts.alphaMode ?? 'OPAQUE',
     alphaCutoff: opts.alphaCutoff ?? null,
-    unlit: opts.unlit ?? false,
     texture: opts.texture ?? null,
     emissiveTexture: opts.emissiveTexture ?? null,
     name: opts.name ?? 'mat',
   };
 }
 
-export function buildGLB(materials, prims, { boards = [], textures = [], spectators = [], lights = [] } = {}) {
+export function buildGLB(materials, prims, { boards = [], nightSpots = [], textures = [], spectators = [], lights = [] } = {}) {
   const binParts = [];
   const bufferViews = [];
   const accessors = [];
@@ -126,6 +125,15 @@ export function buildGLB(materials, prims, { boards = [], textures = [], spectat
       });
     }
     if (children.length) nodes[node].children = children;
+    nodes[0].children.push(node);
+  }
+
+  for (const spot of nightSpots) {
+    const node = nodes.length;
+    nodes.push({
+      name: spot.name,
+      translation: spot.translation,
+    });
     nodes[0].children.push(node);
   }
 
