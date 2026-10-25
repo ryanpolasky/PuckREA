@@ -1,0 +1,6 @@
+node_modules/
+.devinignore
+.idea/
+dist/
+preview_*.png
+marketing/_frames/

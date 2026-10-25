@@ -1,0 +1,11 @@
+{
+  "name": "puck-rea-arena",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Ralph Engelstad Arena map for Puck (Arena Loader format)",
+  "scripts": {
+    "build": "node build.mjs",
+    "preview": "node preview.mjs"
+  }
+}
