@@ -6,7 +6,6 @@ CONTENT_DIR = 'C:/Projects/PuckREA/dist/Ralph Engelstad Arena'
 PREVIEW_IMG = 'C:/Projects/PuckREA/marketing/hero_thumbnail_small.jpg'
 EXTRA_SHOTS = [
     'C:/Projects/PuckREA/marketing/shot_1_bowl.jpg',
-    'C:/Projects/PuckREA/marketing/shot_1_bowl_night.jpg',
     'C:/Projects/PuckREA/marketing/shot_2_center_ice.jpg',
     'C:/Projects/PuckREA/marketing/shot_3_upper_deck.jpg',
     'C:/Projects/PuckREA/marketing/shot_4_endzone.jpg',
@@ -32,7 +31,6 @@ F7 - Stand Up and Cheer
 F8 - Fight on Sioux
 F9 - Stop PA audio
 F10 - Toggle classic/Sioux-era jumbotron
-F11 - Toggle night mode
 [/code]"""
 
 open(ID_FILE, 'w').write('3826743382')
@@ -107,7 +105,7 @@ print("SetItemVisibility (Public=0):", set_vis(ugc, upd, 0))
 submit = dll.SteamAPI_ISteamUGC_SubmitItemUpdate
 submit.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_char_p]
 submit.restype = ctypes.c_uint64
-sub_call = submit(ugc, upd, b'Initial release of Ralph Engelstad Arena (Fighting Sioux)')
+sub_call = submit(ugc, upd, b'Fixed flickering crowd lights, brighter bowl, removed night mode')
 
 prog = dll.SteamAPI_ISteamUGC_GetItemUpdateProgress
 prog.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint64)]

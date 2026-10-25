@@ -13,7 +13,7 @@ export function makeMaterial(opts = {}) {
   };
 }
 
-export function buildGLB(materials, prims, { boards = [], nightSpots = [], textures = [], spectators = [], lights = [] } = {}) {
+export function buildGLB(materials, prims, { boards = [], textures = [], spectators = [], lights = [] } = {}) {
   const binParts = [];
   const bufferViews = [];
   const accessors = [];
@@ -125,15 +125,6 @@ export function buildGLB(materials, prims, { boards = [], nightSpots = [], textu
       });
     }
     if (children.length) nodes[node].children = children;
-    nodes[0].children.push(node);
-  }
-
-  for (const spot of nightSpots) {
-    const node = nodes.length;
-    nodes.push({
-      name: spot.name,
-      translation: spot.translation,
-    });
     nodes[0].children.push(node);
   }
 

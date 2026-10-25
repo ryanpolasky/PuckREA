@@ -100,10 +100,6 @@ def main():
     day.resize((800, 450), Image.Resampling.LANCZOS).save(
         MARKETING / "hero_thumbnail_small.jpg", format="JPEG", quality=92, optimize=True
     )
-    night = compose(MARKETING / "shot_1_bowl_night.png", overlay)
-    night.resize((1280, 720), Image.Resampling.LANCZOS).save(
-        MARKETING / "hero_thumbnail_night.jpg", format="JPEG", quality=92, optimize=True
-    )
 
 
 if __name__ == "__main__":

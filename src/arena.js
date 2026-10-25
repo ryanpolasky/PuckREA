@@ -637,6 +637,8 @@ export function buildArena() {
     seatDarkGreen: makeMaterial({
       color: [1, 1, 1, 1],
       texture: texIdx('seat_dark_green'),
+      emissiveTexture: texIdx('seat_dark_green'),
+      emissive: [0.16, 0.16, 0.16],
       roughness: 0.48,
       doubleSided: true,
       name: 'seatDarkGreen',
@@ -644,6 +646,8 @@ export function buildArena() {
     seatKellyGreen: makeMaterial({
       color: [1, 1, 1, 1],
       texture: texIdx('seat_kelly_green'),
+      emissiveTexture: texIdx('seat_kelly_green'),
+      emissive: [0.16, 0.16, 0.16],
       roughness: 0.48,
       doubleSided: true,
       name: 'seatKellyGreen',
@@ -652,6 +656,8 @@ export function buildArena() {
     upperSeatRow: makeMaterial({
       color: [1, 1, 1, 1],
       texture: texIdx('seat_row_upper'),
+      emissiveTexture: texIdx('seat_row_upper'),
+      emissive: [0.16, 0.16, 0.16],
       roughness: 0.48,
       doubleSided: true,
       name: 'upperSeatRow',
@@ -659,12 +665,14 @@ export function buildArena() {
     stairs: makeMaterial({
       color: [1, 1, 1, 1],
       texture: texIdx('stairs_rea'),
+      emissiveTexture: texIdx('stairs_rea'),
+      emissive: [0.16, 0.16, 0.16],
       roughness: 0.65,
       doubleSided: true,
       name: 'stairs',
     }),
-    tier: makeMaterial({ color: lin([190, 178, 154]), roughness: 0.78, doubleSided: true, name: 'tier' }),
-    concrete: makeMaterial({ color: lin([200, 188, 164]), roughness: 0.78, doubleSided: true, name: 'concrete' }),
+    tier: makeMaterial({ color: lin([190, 178, 154]), emissive: lin([190, 178, 154]).slice(0, 3).map((v) => v * 0.13), roughness: 0.78, doubleSided: true, name: 'tier' }),
+    concrete: makeMaterial({ color: lin([200, 188, 164]), emissive: lin([200, 188, 164]).slice(0, 3).map((v) => v * 0.13), roughness: 0.78, doubleSided: true, name: 'concrete' }),
     rail: makeMaterial({ color: lin([32, 36, 34]), roughness: 0.4, metallic: 0.6, doubleSided: true, name: 'rail' }),
     railGlass: makeMaterial({ color: lin([24, 48, 36]), roughness: 0.15, metallic: 0.7, doubleSided: true, name: 'railGlass' }),
     signs: makeMaterial({
@@ -676,7 +684,7 @@ export function buildArena() {
       doubleSided: true,
       name: 'signs',
     }),
-    wall: makeMaterial({ color: lin([192, 174, 144]), roughness: 0.78, doubleSided: true, name: 'wall' }),
+    wall: makeMaterial({ color: lin([192, 174, 144]), emissive: lin([192, 174, 144]).slice(0, 3).map((v) => v * 0.13), roughness: 0.78, doubleSided: true, name: 'wall' }),
     concourse: makeMaterial({
       color: [1, 1, 1, 1],
       texture: texIdx('concourse_rea'),
@@ -1208,21 +1216,8 @@ export function buildArena() {
 
   const boxAnchors = buildBoxBoard(boxBoardBuilder, M, roofY);
   const cylinderAnchors = buildCylinderBoard(cylinderBoardBuilder, M, roofY);
-  const nightSpots = [
-    [-11, 22, -18], [-11, 22, 18], [11, 22, -18],
-    [11, 22, 18], [0, 22, -30], [0, 22, 30],
-  ].map((translation, i) => ({
-    name: `REA_NightSpot_${i + 1}`,
-    translation,
-  }));
-
-  const lights = [
-    { name: 'BowlFill_Center', type: 'point', pos: [0, 10.9, 0], color: [1, 0.95, 0.86], intensity: 35, range: 48 },
-    { name: 'BowlFill_North', type: 'point', pos: [0, 19.5, 26], color: [1, 0.95, 0.86], intensity: 28, range: 55 },
-    { name: 'BowlFill_South', type: 'point', pos: [0, 19.5, -26], color: [1, 0.95, 0.86], intensity: 28, range: 55 },
-    { name: 'WarmBowl_East', type: 'point', pos: [32, 14.5, 0], color: [1.0, 0.84, 0.58], intensity: 24, range: 55 },
-    { name: 'WarmBowl_West', type: 'point', pos: [-32, 14.5, 0], color: [1.0, 0.84, 0.58], intensity: 24, range: 55 },
-  ];
+  // Puck's rink already fills URP's per-object light budget, extra realtime lights pop in and out
+  const lights = [];
 
   const suiteBuilderPrims = suiteBuilder.toPrims(mats);
   const arenaPrims = b.toPrims(mats);
@@ -1251,7 +1246,6 @@ export function buildArena() {
     materials: mats,
     prims: allPrims,
     boards,
-    nightSpots,
     textures,
     spectators,
     lights,

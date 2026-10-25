@@ -10,12 +10,6 @@ championship banners, center-hung jumbotron, Sioux center-ice crest, and a
   <img src="marketing/showcase_hd.gif" alt="Ralph Engelstad Arena">
 </p>
 
-<p align="center">
-  <img src="marketing/night_showcase_hd.gif" alt="F11 night mode">
-  <br>
-  <em>F11 night mode</em>
-</p>
-
 [Subscribe on the Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3826743382)
 
 Requires [Arena Loader](https://steamcommunity.com/sharedfiles/filedetails/?id=3802863574).

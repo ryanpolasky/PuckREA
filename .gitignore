@@ -4,3 +4,5 @@ node_modules/
 dist/
 preview_*.png
 marketing/_frames/
+marketing/_gallery/
+marketing/shot_[5-8]_*.png

@@ -10,10 +10,6 @@ const FRAMES_DIR = path.join(OUT_DIR, '_frames');
 const WIDTH = Number(process.env.W || 1920);
 const HEIGHT = Number(process.env.H || 1080);
 const BOARD_MODE = process.env.BOARD === 'cylinder' ? 'cylinder' : 'box';
-const NIGHT_MODE = process.env.NIGHT === '1';
-const NIGHT_ANIMATION = process.env.NIGHT_ANIMATION === '1';
-const requestedNightDim = Number(process.env.NIGHT_DIM ?? 0.12);
-const NIGHT_DIM = Number.isFinite(requestedNightDim) ? Math.max(0, Math.min(1, requestedNightDim)) : 0.12;
 const SHOT_SET = process.env.SHOT_SET
   ? new Set(process.env.SHOT_SET.split(',').map((s) => s.trim()).filter(Boolean))
   : null;
@@ -65,8 +61,6 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const W = ${WIDTH}, H = ${HEIGHT};
-const nightMode = ${JSON.stringify(NIGHT_MODE)};
-const nightDim = ${JSON.stringify(NIGHT_DIM)};
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(1);
@@ -210,20 +204,6 @@ gltf.scene.traverse((node) => {
 });
 scene.add(gltf.scene);
 
-const gltfHouseLightStates = [];
-const nightSpotStates = [];
-gltf.scene.traverse((node) => {
-  if (node.isLight) gltfHouseLightStates.push({ light: node, intensity: node.intensity });
-  if (!node.name || !node.name.startsWith('REA_NightSpot_')) return;
-  const spotlight = new THREE.SpotLight(0x26ff59, 10, 45, THREE.MathUtils.degToRad(13), 0.3, 0.5);
-  spotlight.visible = false;
-  const origin = node.getWorldPosition(new THREE.Vector3());
-  spotlight.position.copy(origin);
-  spotlight.castShadow = false;
-  scene.add(spotlight, spotlight.target);
-  nightSpotStates.push({ anchor: node, light: spotlight });
-});
-
 const liveScoreCanvas = document.createElement('canvas');
 liveScoreCanvas.width = 1024;
 liveScoreCanvas.height = 512;
@@ -273,20 +253,12 @@ const torsoGeo = new THREE.CylinderGeometry(0.22, 0.25, 0.58, 8);
 const headGeo = new THREE.SphereGeometry(0.16, 8, 8);
 const capGeo = new THREE.SphereGeometry(0.165, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.55);
 
-const roofFloodStates = [];
-const roofFloodMaterials = new Set();
 let specIdx = 0;
 gltf.scene.traverse((node) => {
   if (node.isMesh && node.material) {
     const materials = Array.isArray(node.material) ? node.material : [node.material];
     for (const material of materials) {
-      if (material.emissiveIntensity === undefined) continue;
-      const isRoofFlood = material.name.startsWith('roofFloodGlow');
-      material.emissiveIntensity = 0.65 * (nightMode && isRoofFlood ? nightDim : 1);
-      if (isRoofFlood && !roofFloodMaterials.has(material)) {
-        roofFloodMaterials.add(material);
-        roofFloodStates.push({ material, intensity: 0.65 });
-      }
+      if (material.emissiveIntensity !== undefined) material.emissiveIntensity = 0.65;
     }
   }
   if (node.name && node.name.startsWith('Spectator') && node.name !== 'Spectator') {
@@ -303,63 +275,6 @@ gltf.scene.traverse((node) => {
     specIdx++;
   }
 });
-
-const ambientLightStates = [ambientFill, hemi].map((light) => ({ light, intensity: light.intensity }));
-const houseLightStates = [dir1, dir2, ...gltfHouseLightStates.map((state) => state.light)]
-  .map((light) => ({ light, intensity: light.intensity }));
-
-function aimNightSpots(time) {
-  for (let i = 0; i < nightSpotStates.length; i++) {
-    const { anchor, light } = nightSpotStates[i];
-    const phase = i * 1.0472;
-    const period = 6.5 + i * 0.35;
-    const frequency = 2 * Math.PI / period;
-    const endSpot = i >= 4;
-    const xSign = i < 2 ? -1 : 1;
-    const zSign = i === 0 || i === 2 || i === 4 ? -1 : 1;
-    const target = new THREE.Vector3(
-      endSpot
-        ? 1.5 * Math.sin(time * frequency + phase)
-        : xSign * (6 + 1.5 * Math.sin(time * frequency + phase)),
-      0.05,
-      zSign * (endSpot
-        ? 12 + 2 * Math.sin(time * frequency / 1.23 + phase * 1.4)
-        : 20 + 3.5 * Math.sin(time * frequency / 1.23 + phase * 1.4)),
-    );
-    const origin = anchor.getWorldPosition(new THREE.Vector3());
-    anchor.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), target.clone().sub(origin).normalize());
-    anchor.updateMatrixWorld(true);
-    light.position.copy(origin);
-    light.target.position.copy(target);
-  }
-}
-
-window.setNightState = (blend, time) => {
-  const b = THREE.MathUtils.clamp(blend, 0, 1);
-  const sweepTime = Number.isFinite(time) ? time : 0;
-  const houseScale = THREE.MathUtils.lerp(1, 0.12, b);
-  const ambientScale = THREE.MathUtils.lerp(1, 0.25, b);
-  for (const state of houseLightStates) state.light.intensity = state.intensity * houseScale;
-  for (const state of ambientLightStates) state.light.intensity = state.intensity * ambientScale;
-  for (const state of roofFloodStates) state.material.emissiveIntensity = state.intensity * houseScale;
-  for (const state of nightSpotStates) state.light.visible = b > 0;
-  aimNightSpots(sweepTime);
-};
-
-function applyStaticNightPreview() {
-  const fillScale = nightMode ? nightDim : 1;
-  const gltfLightScale = nightMode ? nightDim : 0.12;
-  for (const state of ambientLightStates) state.light.intensity = state.intensity * fillScale;
-  for (const state of houseLightStates) {
-    const isGltfLight = gltfHouseLightStates.some((gltfState) => gltfState.light === state.light);
-    state.light.intensity = state.intensity * (isGltfLight ? gltfLightScale : fillScale);
-  }
-  for (const state of roofFloodStates) state.material.emissiveIntensity = state.intensity * (nightMode ? nightDim : 1);
-  for (const state of nightSpotStates) state.light.visible = nightMode;
-  aimNightSpots(0);
-}
-
-applyStaticNightPreview();
 
 window.renderView = (eye, look, fov = 58) => {
   camera.fov = fov;
@@ -457,40 +372,17 @@ const shots = [
   },
 ];
 
-if (!NIGHT_ANIMATION) {
-  for (let i = 0; i < shots.length; i++) {
-    const s = shots[i];
-    if (SHOT_SET && !SHOT_SET.has(String(i + 1)) && !SHOT_SET.has(s.file)) continue;
-    const shotStart = performance.now();
-    await page.evaluate(({ eye, look, fov }) => window.renderView(eye, look, fov), s);
-    const outPath = path.join(OUT_DIR, s.file);
-    await page.screenshot({ path: outPath });
-    console.log(`Captured ${outPath} (${((performance.now() - shotStart) / 1000).toFixed(2)}s)`);
-  }
+for (let i = 0; i < shots.length; i++) {
+  const s = shots[i];
+  if (SHOT_SET && !SHOT_SET.has(String(i + 1)) && !SHOT_SET.has(s.file)) continue;
+  const shotStart = performance.now();
+  await page.evaluate(({ eye, look, fov }) => window.renderView(eye, look, fov), s);
+  const outPath = path.join(OUT_DIR, s.file);
+  await page.screenshot({ path: outPath });
+  console.log(`Captured ${outPath} (${((performance.now() - shotStart) / 1000).toFixed(2)}s)`);
 }
 
-if (NIGHT_ANIMATION) {
-  const fps = 30;
-  const frameCount = 315;
-  const daySeconds = 1;
-  const fadeSeconds = 1.5;
-  const framesDir = path.resolve(process.env.NIGHT_FRAMES_DIR || path.join(FRAMES_DIR, 'night_showcase'));
-  mkdirSync(framesDir, { recursive: true });
-  const shot = shots[0];
-  for (let frame = 0; frame < frameCount; frame++) {
-    const time = frame / fps;
-    const blend = Math.max(0, Math.min(1, (time - daySeconds) / fadeSeconds));
-    const sweepTime = Math.max(0, time - daySeconds);
-    await page.evaluate(({ blend, sweepTime, eye, look, fov }) => {
-      window.setNightState(blend, sweepTime);
-      window.renderView(eye, look, fov);
-    }, { blend, sweepTime, ...shot });
-    const framePath = path.join(framesDir, `frame_${String(frame).padStart(4, '0')}.png`);
-    await page.screenshot({ path: framePath });
-    if (frame % 30 === 0) console.log(`Captured night frame ${frame + 1}/${frameCount}`);
-  }
-  console.log('Captured', frameCount, 'night animation frames');
-} else if (process.env.SHOTS_ONLY !== '1') {
+if (process.env.SHOTS_ONLY !== '1') {
   // Render 180 frames (6 seconds @ 30fps) of a smooth wide-angle arena sweep for the video & GIF
   const totalFrames = 180;
   for (let f = 0; f < totalFrames; f++) {
