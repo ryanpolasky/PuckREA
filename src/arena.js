@@ -22,6 +22,49 @@ function iceDisc(b, cx, cz, y, r, segs, mat, down = false) {
   }
 }
 
+function cylRing(b, y0, y1, r0, r1, segs, mat, outward = true, uvRepeat = 1) {
+  for (let i = 0; i < segs; i++) {
+    const a0 = (i / segs) * Math.PI * 2;
+    const a1 = ((i + 1) / segs) * Math.PI * 2;
+    const c0 = Math.cos(a0), s0 = Math.sin(a0);
+    const c1 = Math.cos(a1), s1 = Math.sin(a1);
+    const xm = (c0 + c1) / 2, zm = (s0 + s1) / 2;
+    const hn = outward ? [xm, 0, zm] : [-xm, 0, -zm];
+    const u0 = (1 - i / segs) * uvRepeat;
+    const u1 = (1 - (i + 1) / segs) * uvRepeat;
+    b.quad(
+      [c0 * r0, y0, s0 * r0],
+      [c1 * r0, y0, s1 * r0],
+      [c1 * r1, y1, s1 * r1],
+      [c0 * r1, y1, s0 * r1],
+      mat,
+      hn,
+      outward ? [[u0, 1], [u1, 1], [u1, 0], [u0, 0]] : [[u1, 1], [u0, 1], [u0, 0], [u1, 0]]
+    );
+  }
+}
+
+function cylArcScreen(b, y0, y1, r, centerAngle, arcSpan, segs, mat) {
+  const aStart = centerAngle + arcSpan / 2;
+  const aEnd = centerAngle - arcSpan / 2;
+  for (let i = 0; i < segs; i++) {
+    const t0 = i / segs, t1 = (i + 1) / segs;
+    const a0 = aStart + (aEnd - aStart) * t0;
+    const a1 = aStart + (aEnd - aStart) * t1;
+    const c0 = Math.cos(a0), s0 = Math.sin(a0);
+    const c1 = Math.cos(a1), s1 = Math.sin(a1);
+    b.quad(
+      [c0 * r, y0, s0 * r],
+      [c1 * r, y0, s1 * r],
+      [c1 * r, y1, s1 * r],
+      [c0 * r, y1, s0 * r],
+      mat,
+      [(c0 + c1) / 2, 0, (s0 + s1) / 2],
+      [[t0, 1], [t1, 1], [t1, 0], [t0, 0]]
+    );
+  }
+}
+
 function buildBoxBoard(b, M, roofY) {
   const sides = ['+z', '-z', '+x', '-x'];
   const addFrustumFace = (side, topHalf, bottomHalf, topY, bottomY, mat) => {
@@ -115,6 +158,32 @@ function buildBoxBoard(b, M, roofY) {
     const sx = Math.cos(a) * 10.8, sz = Math.sin(a) * 10.8;
     b.box(sx, 19.15, sz, 0.88, 2.4, 1.05, M.speakerBlack, 0, -a, 0.18);
     b.box(sx, (roofY + 20.35) / 2, sz, 0.14, roofY - 20.35, 0.14, M.speakerBlack);
+  }
+}
+
+function buildCylinderBoard(b, M, roofY) {
+  const deg = Math.PI / 180;
+  const sbSegs = 32;
+  const sbR = 6.85;
+  cylRing(b, 17.15, 17.95, sbR, sbR, sbSegs, M.sbHeader, true, 4);
+  cylRing(b, 16.10, 17.15, sbR, sbR, sbSegs, M.ledRibbon, true, 1);
+  for (const ang of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+    cylArcScreen(b, 12.55, 16.10, sbR, ang, 78 * deg, 8, M.sbMain);
+    cylArcScreen(b, 12.55, 16.10, sbR, ang + Math.PI / 4, 12 * deg, 2, M.speakerBlack);
+  }
+  cylRing(b, 11.50, 12.55, sbR, sbR, sbSegs, M.ledRibbon, true, 1);
+  iceDisc(b, 0, 0, 17.95, sbR, sbSegs, M.speakerBlack, false);
+  iceDisc(b, 0, 0, 11.50, sbR, sbSegs, M.speakerBlack, true);
+  cylRing(b, 11.32, 11.50, 5.6, 6.7, sbSegs, M.greenGlow, true, 1);
+
+  for (const [hx, hz] of [[-3.6, -3.6], [3.6, -3.6], [-3.6, 3.6], [3.6, 3.6]]) {
+    b.box(hx, (roofY + 17.95) / 2, hz, 0.20, roofY - 17.95, 0.20, M.speakerBlack);
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const sx = Math.cos(a) * 9.0, sz = Math.sin(a) * 9.0;
+    b.box(sx, 18.8, sz, 0.72, 2.1, 0.90, M.speakerBlack, 0, -a, 0.18);
+    b.box(sx, (roofY + 19.8) / 2, sz, 0.12, roofY - 19.8, 0.12, M.speakerBlack);
   }
 }
 
@@ -233,6 +302,15 @@ export function buildArena() {
       doubleSided: true,
       name: 'ledRibbon',
     }),
+    sbHeader: makeMaterial({
+      color: [1, 1, 1, 1],
+      texture: texIdx('scoreboard_header'),
+      emissiveTexture: texIdx('scoreboard_header'),
+      emissive: [1.3, 1.3, 1.3],
+      roughness: 0.3,
+      doubleSided: true,
+      name: 'sbHeader',
+    }),
     sbMain: makeMaterial({
       color: [1, 1, 1, 1],
       texture: texIdx('scoreboard_main'),
@@ -298,6 +376,8 @@ export function buildArena() {
   };
   const mats = Object.values(M);
   const b = new Builder();
+  const boxBoardBuilder = new Builder();
+  const cylinderBoardBuilder = new Builder();
 
   // 1. LOAD EXTRACTED BOWL, STAIRS, RAILINGS, 3,000+ 3D STADIUM CHAIRS, BENCHES, AND SPECTATORS
   const bowlMeta = JSON.parse(readFileSync('assets/bowl.json', 'utf8'));
@@ -620,7 +700,8 @@ export function buildArena() {
     b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
   }
 
-  buildBoxBoard(b, M, roofY);
+  buildBoxBoard(boxBoardBuilder, M, roofY);
+  buildCylinderBoard(cylinderBoardBuilder, M, roofY);
 
   const lights = [
     { name: 'BowlFill_Center', type: 'point', pos: [0, 10.9, 0], color: [1, 0.95, 0.86], intensity: 35, range: 48 },
@@ -634,5 +715,9 @@ export function buildArena() {
     (s) => !(s.x < -24.0 && s.y < 2.55 && Math.abs(s.z) < 8.28)
   );
   const allPrims = [...importedPrims, ...b.toPrims(mats)];
-  return { materials: mats, prims: allPrims, textures, spectators: filteredSpectators, lights };
+  const boards = [
+    { name: 'REA_Board_Box', prims: boxBoardBuilder.toPrims(mats) },
+    { name: 'REA_Board_Cylinder', prims: cylinderBoardBuilder.toPrims(mats), hidden: true },
+  ];
+  return { materials: mats, prims: allPrims, boards, textures, spectators: filteredSpectators, lights };
 }

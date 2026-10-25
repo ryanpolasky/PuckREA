@@ -9,6 +9,7 @@ const OUT_DIR = path.resolve(process.env.OUT_DIR || path.join(REPO_DIR, 'marketi
 const FRAMES_DIR = path.join(OUT_DIR, '_frames');
 const WIDTH = Number(process.env.W || 1920);
 const HEIGHT = Number(process.env.H || 1080);
+const BOARD_MODE = process.env.BOARD === 'cylinder' ? 'cylinder' : 'box';
 const ARENA_FILE = path.join(REPO_DIR, 'dist', 'Ralph Engelstad Arena', 'ralph_engelstad.glb');
 const ICE_FILE = path.join(REPO_DIR, 'assets', 'generated', 'puck_ice_surface.png');
 const PLAYWRIGHT_FALLBACK = 'file:///C:/Projects/Marralhinha/node_modules/playwright/index.mjs';
@@ -192,6 +193,11 @@ for (const sz of [-1, 1]) {
 // Load ralph_engelstad.glb and populate Spectator.* nodes with Fighting Sioux fans (kelly green, white, dark green jerseys)
 const loader = new GLTFLoader();
 const gltf = await new Promise((res, rej) => loader.load('/arena.glb', res, undefined, rej));
+const boardMode = ${JSON.stringify(BOARD_MODE)};
+gltf.scene.traverse((node) => {
+  if (node.name && node.name.startsWith('REA_Board_Box')) node.scale.setScalar(boardMode === 'cylinder' ? 0 : 1);
+  if (node.name && node.name.startsWith('REA_Board_Cylinder')) node.scale.setScalar(boardMode === 'cylinder' ? 1 : 0);
+});
 scene.add(gltf.scene);
 
 const jerseyMats = [

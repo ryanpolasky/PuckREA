@@ -50,6 +50,9 @@ namespace RalphEngelstadAudio
 
     public class ArenaAudioController : MonoBehaviour
     {
+        private const string BoardCylinderPreference = "REA_BoardCylinder";
+        private static bool _useCylinder = PlayerPrefs.GetInt(BoardCylinderPreference, 0) != 0;
+
         private AudioClip _goalHorn;
         private AudioClip _standUp;
         private AudioClip _fightOn;
@@ -60,6 +63,7 @@ namespace RalphEngelstadAudio
         private Mesh _originalBarrierGlassMesh;
         private Mesh _cutBarrierGlassMesh;
         private MeshRenderer _barrierPillarsRenderer;
+        private bool _boardNodesWarningLogged;
         private readonly List<AudioSource> _centerSpeakers = new List<AudioSource>();
         private readonly List<AudioSource> _endSpeakers = new List<AudioSource>();
         private readonly List<AudioSource> _hornSpeakers = new List<AudioSource>();
@@ -174,6 +178,7 @@ namespace RalphEngelstadAudio
             }
 
             _arenaRoot = found;
+            ApplyBoardState();
             _paRoot = new GameObject("REA_PositionalPA_System");
             _paRoot.transform.SetParent(_arenaRoot.transform, false);
 
@@ -206,6 +211,35 @@ namespace RalphEngelstadAudio
             MuteVanillaHorns();
             _lastPhase = GamePhase.None;
             Debug.Log("[RalphEngelstadAudio] Built 7-cluster 3D Positional PA Speaker Rig inside The Ralph");
+        }
+
+        private void ApplyBoardState()
+        {
+            if (_arenaRoot == null) return;
+
+            bool foundBox = false;
+            bool foundCylinder = false;
+            foreach (Transform node in _arenaRoot.GetComponentsInChildren<Transform>(true))
+            {
+                if (node == null) continue;
+                if (node.name.StartsWith("REA_Board_Box", StringComparison.Ordinal))
+                {
+                    node.gameObject.SetActive(!_useCylinder);
+                    foundBox = true;
+                }
+                else if (node.name.StartsWith("REA_Board_Cylinder", StringComparison.Ordinal))
+                {
+                    node.localScale = Vector3.one;
+                    node.gameObject.SetActive(_useCylinder);
+                    foundCylinder = true;
+                }
+            }
+
+            if ((!foundBox || !foundCylinder) && !_boardNodesWarningLogged)
+            {
+                Debug.LogWarning("[RalphEngelstadAudio] Could not find both jumbotron board nodes");
+                _boardNodesWarningLogged = true;
+            }
         }
 
         private AudioSource CreateSpeaker(string name, Vector3 pos, bool isDistantEndSpeaker)
@@ -441,52 +475,61 @@ namespace RalphEngelstadAudio
         private void Update()
         {
             EnsureSpeakerRig();
-            if (_paRoot == null) return;
-
-            if (NetworkBehaviourSingleton<GameManager>.Instance != null)
+            if (_paRoot != null)
             {
-                ApplyPhaseAudio(NetworkBehaviourSingleton<GameManager>.Instance.Phase);
-            }
-
-            if (_followUpTimer > 0f)
-            {
-                _followUpTimer -= Time.deltaTime;
-                if (_followUpTimer <= 0f && _standUp != null)
+                if (NetworkBehaviourSingleton<GameManager>.Instance != null)
                 {
-                    PlayPA(_standUp, 0.80f, false, false);
+                    ApplyPhaseAudio(NetworkBehaviourSingleton<GameManager>.Instance.Phase);
+                }
+
+                if (_followUpTimer > 0f)
+                {
+                    _followUpTimer -= Time.deltaTime;
+                    if (_followUpTimer <= 0f && _standUp != null)
+                    {
+                        PlayPA(_standUp, 0.80f, false, false);
+                    }
+                }
+
+                if (Mathf.Abs(_currentVolume - _targetVolume) > 0.005f)
+                {
+                    _currentVolume = Mathf.MoveTowards(_currentVolume, _targetVolume, _fadeSpeed * Time.deltaTime);
+                    ApplyVolume(_currentVolume);
+                    if (_currentVolume <= 0.01f && _targetVolume <= 0.01f)
+                    {
+                        StopAllSpeakers();
+                    }
                 }
             }
 
-            if (Mathf.Abs(_currentVolume - _targetVolume) > 0.005f)
-            {
-                _currentVolume = Mathf.MoveTowards(_currentVolume, _targetVolume, _fadeSpeed * Time.deltaTime);
-                ApplyVolume(_currentVolume);
-                if (_currentVolume <= 0.01f && _targetVolume <= 0.01f)
-                {
-                    StopAllSpeakers();
-                }
-            }
-
-            // Manual PA Soundboard Hotkeys (F6 = Goal Horn, F7 = Stand Up and Cheer, F8 = Fight on Sioux, F9 = Fade Out)
+            // F6 horn, F7 cheer, F8 Sioux, F9 stop PA, F10 board toggle
             Keyboard kb = Keyboard.current;
             if (kb != null)
             {
-                if (kb.f6Key.wasPressedThisFrame)
+                if (kb.f10Key.wasPressedThisFrame)
+                {
+                    _useCylinder = !_useCylinder;
+                    PlayerPrefs.SetInt(BoardCylinderPreference, _useCylinder ? 1 : 0);
+                    PlayerPrefs.Save();
+                    ApplyBoardState();
+                }
+
+                if (_paRoot != null && kb.f6Key.wasPressedThisFrame)
                 {
                     _followUpTimer = -1f;
                     PlayPA(_goalHorn, 0.72f, true, false);
                 }
-                else if (kb.f7Key.wasPressedThisFrame)
+                else if (_paRoot != null && kb.f7Key.wasPressedThisFrame)
                 {
                     _followUpTimer = -1f;
                     PlayPA(_standUp, 0.88f, false, false);
                 }
-                else if (kb.f8Key.wasPressedThisFrame)
+                else if (_paRoot != null && kb.f8Key.wasPressedThisFrame)
                 {
                     _followUpTimer = -1f;
                     PlayPA(_fightOn, 0.88f, false, false);
                 }
-                else if (kb.f9Key.wasPressedThisFrame)
+                else if (_paRoot != null && kb.f9Key.wasPressedThisFrame)
                 {
                     _followUpTimer = -1f;
                     _targetVolume = 0f;
