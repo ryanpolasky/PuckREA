@@ -7,14 +7,13 @@ export function makeMaterial(opts = {}) {
     doubleSided: opts.doubleSided ?? false,
     alphaMode: opts.alphaMode ?? 'OPAQUE',
     alphaCutoff: opts.alphaCutoff ?? null,
-    unlit: opts.unlit ?? false,
     texture: opts.texture ?? null,
     emissiveTexture: opts.emissiveTexture ?? null,
     name: opts.name ?? 'mat',
   };
 }
 
-export function buildGLB(materials, prims, { boards = [], nightBeams = [], textures = [], spectators = [], lights = [] } = {}) {
+export function buildGLB(materials, prims, { boards = [], nightSpots = [], textures = [], spectators = [], lights = [] } = {}) {
   const binParts = [];
   const bufferViews = [];
   const accessors = [];
@@ -129,19 +128,13 @@ export function buildGLB(materials, prims, { boards = [], nightBeams = [], textu
     nodes[0].children.push(node);
   }
 
-  if (nightBeams.length) {
-    const mesh = meshes.length;
-    meshes.push({ name: 'REA_NightBeam', primitives: buildPrimitives(nightBeams[0].prims) });
-    for (const beam of nightBeams) {
-      const node = nodes.length;
-      nodes.push({
-        name: beam.name,
-        mesh,
-        translation: beam.translation,
-        scale: [0, 0, 0],
-      });
-      nodes[0].children.push(node);
-    }
+  for (const spot of nightSpots) {
+    const node = nodes.length;
+    nodes.push({
+      name: spot.name,
+      translation: spot.translation,
+    });
+    nodes[0].children.push(node);
   }
 
   if (spectators.length) {
@@ -194,7 +187,6 @@ export function buildGLB(materials, prims, { boards = [], nightBeams = [], textu
 
   const extensionsUsed = [];
   if (gltfLights.length) extensionsUsed.push('KHR_lights_punctual');
-  if (materials.some((m) => m.unlit)) extensionsUsed.push('KHR_materials_unlit');
 
   const json = {
     asset: { version: '2.0', generator: 'puck-rea-arena' },
@@ -219,7 +211,6 @@ export function buildGLB(materials, prims, { boards = [], nightBeams = [], textu
         out.emissiveTexture = { index: m.emissiveTexture };
         if (!out.emissiveFactor) out.emissiveFactor = [1, 1, 1];
       }
-      if (m.unlit) out.extensions = { KHR_materials_unlit: {} };
       if (m.alphaMode !== 'OPAQUE') out.alphaMode = m.alphaMode;
       if (m.alphaCutoff !== null) out.alphaCutoff = m.alphaCutoff;
       return out;

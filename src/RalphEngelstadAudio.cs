@@ -96,7 +96,7 @@ namespace RalphEngelstadAudio
         private readonly List<LiveScoreTextSet> _liveScoreTexts = new List<LiveScoreTextSet>();
         private readonly List<NightLightState> _nightLights = new List<NightLightState>();
         private readonly List<NightEmissionState> _nightEmissions = new List<NightEmissionState>();
-        private readonly List<Transform> _nightBeams = new List<Transform>();
+        private readonly List<Transform> _nightSpots = new List<Transform>();
         private readonly List<Light> _nightSpotlights = new List<Light>();
 
         private float _targetVolume = 0f;
@@ -317,7 +317,7 @@ namespace RalphEngelstadAudio
             _nightTargetBlend = 0f;
             _nightLights.Clear();
             _nightEmissions.Clear();
-            _nightBeams.Clear();
+            _nightSpots.Clear();
             _nightSpotlights.Clear();
             _originalAmbientIntensity = RenderSettings.ambientIntensity;
             _originalAmbientLight = RenderSettings.ambientLight;
@@ -353,9 +353,8 @@ namespace RalphEngelstadAudio
 
             foreach (Transform node in _arenaRoot.GetComponentsInChildren<Transform>(true))
             {
-                if (node == null || !node.name.StartsWith("REA_NightBeam_", StringComparison.Ordinal)) continue;
-                _nightBeams.Add(node);
-                node.localScale = Vector3.zero;
+                if (node == null || !node.name.StartsWith("REA_NightSpot_", StringComparison.Ordinal)) continue;
+                _nightSpots.Add(node);
                 GameObject spotObject = new GameObject("REA_NightSpotlight");
                 spotObject.layer = node.gameObject.layer;
                 spotObject.transform.SetParent(node, false);
@@ -363,9 +362,9 @@ namespace RalphEngelstadAudio
                 Light spotlight = spotObject.AddComponent<Light>();
                 spotlight.type = LightType.Spot;
                 spotlight.color = new Color(0.15f, 1f, 0.35f);
-                spotlight.intensity = 8f;
-                spotlight.range = 40f;
-                spotlight.spotAngle = 22f;
+                spotlight.intensity = 10f;
+                spotlight.range = 45f;
+                spotlight.spotAngle = 26f;
                 spotlight.renderMode = LightRenderMode.ForcePixel;
                 spotlight.shadows = LightShadows.None;
                 spotlight.enabled = false;
@@ -377,11 +376,6 @@ namespace RalphEngelstadAudio
         {
             _nightMode = enabled;
             _nightTargetBlend = enabled ? 1f : 0f;
-            for (int i = 0; i < _nightBeams.Count; i++)
-            {
-                Transform beam = _nightBeams[i];
-                if (beam != null) beam.localScale = enabled ? Vector3.one : Vector3.zero;
-            }
             foreach (Light spotlight in _nightSpotlights)
             {
                 if (spotlight != null) spotlight.enabled = enabled;
@@ -406,13 +400,13 @@ namespace RalphEngelstadAudio
             RenderSettings.ambientLight = _originalAmbientLight * ambientScale;
         }
 
-        private void UpdateNightBeamSweep()
+        private void UpdateNightSpotSweep()
         {
             float time = Time.time;
-            for (int i = 0; i < _nightBeams.Count; i++)
+            for (int i = 0; i < _nightSpots.Count; i++)
             {
-                Transform beam = _nightBeams[i];
-                if (beam == null) continue;
+                Transform spot = _nightSpots[i];
+                if (spot == null) continue;
                 float phase = i * 1.0472f;
                 float period = 6.5f + i * 0.35f;
                 float frequency = 2f * Mathf.PI / period;
@@ -427,7 +421,7 @@ namespace RalphEngelstadAudio
                     zSign * (endSpot
                         ? 12f + 2f * Mathf.Sin(time * frequency / 1.23f + phase * 1.4f)
                         : 20f + 3.5f * Mathf.Sin(time * frequency / 1.23f + phase * 1.4f)));
-                beam.rotation = Quaternion.FromToRotation(Vector3.down, target - beam.position);
+                spot.rotation = Quaternion.FromToRotation(Vector3.down, target - spot.position);
             }
         }
 
@@ -450,10 +444,6 @@ namespace RalphEngelstadAudio
             _nightMode = false;
             _nightBlend = 0f;
             _nightTargetBlend = 0f;
-            foreach (Transform beam in _nightBeams)
-            {
-                if (beam != null) beam.localScale = Vector3.zero;
-            }
             foreach (Light spotlight in _nightSpotlights)
             {
                 if (spotlight != null) spotlight.enabled = false;
@@ -468,7 +458,7 @@ namespace RalphEngelstadAudio
             }
             _nightLights.Clear();
             _nightEmissions.Clear();
-            _nightBeams.Clear();
+            _nightSpots.Clear();
             _nightSpotlights.Clear();
         }
 
@@ -837,7 +827,7 @@ namespace RalphEngelstadAudio
             if (_arenaRoot != null)
             {
                 UpdateNightModeFade();
-                if (_nightMode) UpdateNightBeamSweep();
+                if (_nightMode) UpdateNightSpotSweep();
             }
             if (_paRoot != null)
             {
