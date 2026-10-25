@@ -4,40 +4,121 @@ import { makeMaterial } from './gltf.js';
 import { buildTextures } from './textures.js';
 
 const CROWD = { lower: 0.5, upper: 0.12, suite: 3 };
-const SUITE_STYLE = process.env.SUITE_STYLE === 'glass' ? 'glass' : 'open';
-const SUITE = { width: 3.8, spacing: 4.2, front: 0.02, floorY: 10.62, ceilingY: 13.08 };
+const SUITE = { width: 3.8, spacing: 3.82, front: 0.02, floorY: 10.62, ceilingY: 13.08 };
 
 const lin = (c) => {
   const f = (v) => Math.pow((v / 255 + 0.055) / 1.055, 2.4);
   return [f(c[0]), f(c[1]), f(c[2]), c.length > 3 ? c[3] / 255 : 1];
 };
 
-function pathPointAt(path, distance) {
-  const d = ((distance % path.totalLen) + path.totalLen) % path.totalLen;
-  let i = 0;
-  while (i + 1 < path.length && path[i + 1].s <= d) i++;
-  const a = path[i], b = path[(i + 1) % path.length];
-  const segLen = i === path.length - 1 ? path.totalLen - a.s : b.s - a.s;
-  const t = segLen ? (d - a.s) / segLen : 0;
-  const nx0 = a.nx + (b.nx - a.nx) * t;
-  const nz0 = a.nz + (b.nz - a.nz) * t;
-  const nLen = Math.hypot(nx0, nz0) || 1;
+function suiteCenters(path) {
+  const centers = [];
+  const sides = [
+    { nx: 1, nz: 0, fixedAxis: 'x', tangentAxis: 'z', fixed: Math.max(...path.map((p) => p.x)) },
+    { nx: -1, nz: 0, fixedAxis: 'x', tangentAxis: 'z', fixed: Math.min(...path.map((p) => p.x)) },
+    { nx: 0, nz: 1, fixedAxis: 'z', tangentAxis: 'x', fixed: Math.max(...path.map((p) => p.z)) },
+    { nx: 0, nz: -1, fixedAxis: 'z', tangentAxis: 'x', fixed: Math.min(...path.map((p) => p.z)) },
+  ];
+  for (const side of sides) {
+    const segment = path.filter((p) => Math.abs(p[side.fixedAxis] - side.fixed) < 1e-4
+      && Math.abs(p.nx - side.nx) < 1e-4 && Math.abs(p.nz - side.nz) < 1e-4);
+    if (segment.length < 2) continue;
+    const min = Math.min(...segment.map((p) => p[side.tangentAxis]));
+    const max = Math.max(...segment.map((p) => p[side.tangentAxis]));
+    const span = max - min;
+    const count = Math.floor((span - SUITE.width) / SUITE.spacing) + 1;
+    if (count < 1) continue;
+    const used = SUITE.width + (count - 1) * SUITE.spacing;
+    const first = min + (span - used) / 2 + SUITE.width / 2;
+    for (let i = 0; i < count; i++) {
+      const p = { [side.fixedAxis]: side.fixed, [side.tangentAxis]: first + i * SUITE.spacing, nx: side.nx, nz: side.nz };
+      centers.push({ x: p.x, z: p.z, nx: p.nx, nz: p.nz });
+    }
+  }
+  return centers;
+}
+
+function mixWallVertex(a, b, t) {
   return {
-    x: a.x + (b.x - a.x) * t,
-    z: a.z + (b.z - a.z) * t,
-    nx: nx0 / nLen,
-    nz: nz0 / nLen,
+    position: a.position.map((v, i) => v + (b.position[i] - v) * t),
+    normal: a.normal.map((v, i) => v + (b.normal[i] - v) * t),
+    uv: a.uv.map((v, i) => v + (b.uv[i] - v) * t),
   };
 }
 
-function suiteCenters(path) {
-  const centers = [];
-  for (let s = SUITE.spacing / 2; s < path.totalLen; s += SUITE.spacing) {
-    const p = pathPointAt(path, s);
-    if (Math.min(Math.abs(p.nx), Math.abs(p.nz)) > 0.02) continue;
-    centers.push(p);
+function clipWallPolygon(poly, value, edge, keepGreater) {
+  const result = [];
+  for (let i = 0; i < poly.length; i++) {
+    const current = poly[i], previous = poly[(i + poly.length - 1) % poly.length];
+    const currentValue = value(current), previousValue = value(previous);
+    const currentInside = keepGreater ? currentValue >= edge - 1e-8 : currentValue <= edge + 1e-8;
+    const previousInside = keepGreater ? previousValue >= edge - 1e-8 : previousValue <= edge + 1e-8;
+    if (currentInside !== previousInside) {
+      const t = (edge - previousValue) / (currentValue - previousValue);
+      result.push(mixWallVertex(previous, current, t));
+    }
+    if (currentInside) result.push(current);
   }
-  return centers;
+  const clean = [];
+  for (const vertex of result) {
+    const prior = clean[clean.length - 1];
+    if (!prior || Math.hypot(...vertex.position.map((v, i) => v - prior.position[i])) > 1e-7) clean.push(vertex);
+  }
+  if (clean.length > 2 && Math.hypot(...clean[0].position.map((v, i) => v - clean[clean.length - 1].position[i])) <= 1e-7) clean.pop();
+  return clean;
+}
+
+function sameWallPolygon(a, b) {
+  return a.length === b.length && a.every((v, i) => v.position.every((c, j) => Math.abs(c - b[i].position[j]) < 1e-7));
+}
+
+function subtractSuiteOpening(poly, center) {
+  const along = (v) => (v.position[0] - center.x) * -center.nz + (v.position[2] - center.z) * center.nx;
+  const conditions = [
+    [along, -SUITE.width / 2, true],
+    [along, SUITE.width / 2, false],
+    [(v) => v.position[1], SUITE.floorY, true],
+    [(v) => v.position[1], SUITE.ceilingY, false],
+  ];
+  let inside = poly;
+  const outside = [];
+  for (const [value, edge, keepGreater] of conditions) {
+    const piece = clipWallPolygon(inside, value, edge, !keepGreater);
+    if (piece.length >= 3) outside.push(piece);
+    inside = clipWallPolygon(inside, value, edge, keepGreater);
+    if (inside.length < 3) break;
+  }
+  return outside;
+}
+
+function clipWallTriangle(vertices, centers) {
+  let polygons = [vertices];
+  let changed = false;
+  for (const center of centers) {
+    const along = (v) => (v.position[0] - center.x) * -center.nz + (v.position[2] - center.z) * center.nx;
+    const depth = (v) => (v.position[0] - center.x) * center.nx + (v.position[2] - center.z) * center.nz;
+    const candidate = polygons.some((poly) => {
+      const depths = poly.map(depth), alongs = poly.map(along), ys = poly.map((v) => v.position[1]);
+      return Math.max(...depths) - Math.min(...depths) < 1e-3
+        && Math.abs(depths[0] - SUITE.front) < 5e-3
+        && Math.max(...alongs) >= -SUITE.width / 2 && Math.min(...alongs) <= SUITE.width / 2
+        && Math.max(...ys) >= SUITE.floorY && Math.min(...ys) <= SUITE.ceilingY;
+    });
+    if (!candidate) continue;
+    const next = [];
+    let cut = false;
+    for (const poly of polygons) {
+      const pieces = subtractSuiteOpening(poly, center);
+      if (pieces.length !== 1 || !sameWallPolygon(pieces[0], poly)) cut = true;
+      next.push(...pieces);
+    }
+    if (cut) {
+      changed = true;
+      polygons = next;
+    }
+    if (!polygons.length) break;
+  }
+  return changed ? polygons : null;
 }
 
 function quatFromAxes(x, y, z) {
@@ -192,7 +273,7 @@ function buildLowerCrowd(seatData, existing) {
   return { offset, added, density, matched: matched.length };
 }
 
-function buildSuites(builder, M, centerPoints, style, seatOffset, spectatorsPerSuite) {
+function buildSuites(builder, M, centerPoints, seatOffset, spectatorsPerSuite) {
   const centers = [];
   const spectators = [];
   const width = SUITE.width, halfWidth = width / 2;
@@ -253,16 +334,7 @@ function buildSuites(builder, M, centerPoints, style, seatOffset, spectatorsPerS
       point(1.15, 0.84, stepY),
       point(-1.15, 0.84, stepY),
     ], M.speakerBlack, [-p.nx, 0, -p.nz]);
-    builder.box(...point(0, 0.18, 11.98), width - 0.12, 0.14, 0.20, M.suiteWood, 0, angle, 0);
-
-    if (style === 'glass') {
-      quad([
-        point(-halfWidth + 0.01, frontD, floorY),
-        point(halfWidth - 0.01, frontD, floorY),
-        point(halfWidth - 0.01, frontD, ceilingY),
-        point(-halfWidth + 0.01, frontD, ceilingY),
-      ], M.suiteGlass, [-p.nx, 0, -p.nz]);
-    }
+    builder.box(...point(0, 0.18, 11.98), width - 0.02, 0.14, 0.20, M.suiteWood, 0, angle, 0);
 
     const seatSpecs = [
       { u: -0.65, d: 0.48, y: floorY + seatH / 2 },
@@ -579,14 +651,6 @@ export function buildArena() {
       name: 'suiteInterior',
     }),
     suiteWood: makeMaterial({ color: lin([110, 48, 30]), roughness: 0.58, doubleSided: true, name: 'suiteWood' }),
-    suiteGlass: makeMaterial({
-      color: lin([198, 224, 209, 110]),
-      roughness: 0.18,
-      metallic: 0.2,
-      doubleSided: true,
-      alphaMode: 'BLEND',
-      name: 'suiteGlass',
-    }),
     suiteWarm: makeMaterial({
       color: lin([245, 198, 125]),
       emissive: lin([235, 175, 88]).slice(0, 3),
@@ -774,14 +838,37 @@ export function buildArena() {
       const cz = (z0 + z1 + z2) / 3;
       const maxY = Math.max(y0, y1, y2);
       if (pm.mat === 'Glass' && maxY < 4.0) continue;
-      if (pm.mat === 'Wall' && cy >= SUITE.floorY - 0.1 && cy <= SUITE.ceilingY + 0.1) {
-        const overlapsSuite = suiteOpeningCenters.some((p) => {
-          const dx = cx - p.x, dz = cz - p.z;
-          const along = dx * -p.nz + dz * p.nx;
-          const depth = dx * p.nx + dz * p.nz;
-          return Math.abs(along) < SUITE.width / 2 && Math.abs(depth - SUITE.front) < 0.05;
-        });
-        if (overlapsSuite) continue;
+      if (pm.mat === 'Wall') {
+        const vertices = [i0, i1, i2].map((vertex) => ({
+          position: [pos[vertex * 3], pos[vertex * 3 + 1], pos[vertex * 3 + 2]],
+          normal: [norm[vertex * 3], norm[vertex * 3 + 1], norm[vertex * 3 + 2]],
+          uv: [uv[vertex * 2], uv[vertex * 2 + 1]],
+        }));
+        const pieces = clipWallTriangle(vertices, suiteOpeningCenters);
+        if (pieces) {
+          for (const polygon of pieces) {
+            for (let j = 1; j + 1 < polygon.length; j++) {
+              const triangle = [polygon[0], polygon[j], polygon[j + 1]];
+              const ab = triangle[1].position.map((v, k) => v - triangle[0].position[k]);
+              const ac = triangle[2].position.map((v, k) => v - triangle[0].position[k]);
+              const area = Math.hypot(
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+              ) / 2;
+              if (area < 1e-8) continue;
+              const base = pos.length / 3;
+              for (const vertex of triangle) {
+                const length = Math.hypot(...vertex.normal) || 1;
+                pos.push(...vertex.position);
+                norm.push(...vertex.normal.map((v) => v / length));
+                uv.push(...vertex.uv);
+              }
+              filteredIdx.push(base, base + 1, base + 2);
+            }
+          }
+          continue;
+        }
       }
       // Remove the 2 cols x 2 rows of floating chairs on each side of the penalty box (x < -24, y < 2.55, |z| < 8.28) where there is no concrete tier beneath them
       if ((pm.mat === 'SeatShell' || pm.mat === 'SeatShellY' || pm.mat === 'SeatFrame') && cx < -24.0 && cy < 2.55 && Math.abs(cz) < 8.28) {
@@ -899,7 +986,7 @@ export function buildArena() {
   }
 
   const roofY = 25.5;
-  const suiteData = buildSuites(suiteBuilder, M, suiteOpeningCenters, SUITE_STYLE, lowerCrowd.offset, CROWD.suite);
+  const suiteData = buildSuites(suiteBuilder, M, suiteOpeningCenters, lowerCrowd.offset, CROWD.suite);
 
   ringStrip(b, fasciaPath, 14.25, fasciaPath, 15.10, M.concrete, (m) => [-m.x, 0, -m.z]);
   const parapetPath = offsetPath(fasciaPath, 0.15);
@@ -1082,7 +1169,6 @@ export function buildArena() {
     suitePrims,
     suiteCenters: suiteData.centers,
     suiteTriangles: suiteData.triangles,
-    suiteStyle: SUITE_STYLE,
     crowdCounts,
     crowdDensity: lowerCrowd.density,
   };
