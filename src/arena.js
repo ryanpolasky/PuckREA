@@ -66,31 +66,34 @@ function cylArcScreen(b, y0, y1, r, centerAngle, arcSpan, segs, mat) {
 }
 
 function buildBoxBoard(b, M, roofY) {
-  const videoY = 15.95;
-  const side = 3.9;
-  b.box(0, videoY, 0, side * 2, 4.1, side * 2, M.speakerBlack);
-  b.box(0, 12.7, 0, 7.5, 2.4, 7.5, M.speakerBlack);
+  const videoY = 16.15;
+  const boardTop = 18.70;
+  const side = 5.0;
+  const scoreY = 12.25;
+  const scoreSide = 4.0;
+  b.box(0, videoY, 0, side * 2, 5.1, side * 2, M.speakerBlack);
+  b.box(0, scoreY, 0, scoreSide * 2, 2.7, scoreSide * 2, M.speakerBlack);
   for (const s of [-1, 1]) {
-    b.panel(0, videoY, s * (side + 0.01), 7.2, 3.6, 0, s, M.sbMain);
-    b.panel(s * (side + 0.01), videoY, 0, 7.2, 3.6, s, 0, M.sbMain);
-    b.panel(0, 18.08, s * (side + 0.015), 7.45, 0.14, 0, s, M.ledRibbon);
-    b.panel(s * (side + 0.015), 18.08, 0, 7.45, 0.14, s, 0, M.ledRibbon);
-    b.panel(0, 12.7, s * 3.76, 6.4, 2.0, 0, s, M.sbScore);
-    b.panel(s * 3.76, 12.7, 0, 6.4, 2.0, s, 0, M.sbScore);
+    b.panel(0, videoY, s * (side + 0.01), 9.2, 4.6, 0, s, M.sbMain);
+    b.panel(s * (side + 0.01), videoY, 0, 9.2, 4.6, s, 0, M.sbMain);
+    b.panel(0, 18.78, s * (side + 0.015), 9.6, 0.14, 0, s, M.ledRibbon);
+    b.panel(s * (side + 0.015), 18.78, 0, 9.6, 0.14, s, 0, M.ledRibbon);
+    b.panel(0, scoreY, s * (scoreSide + 0.01), 7.4, 2.6, 0, s, M.sbScore);
+    b.panel(s * (scoreSide + 0.01), scoreY, 0, 7.4, 2.6, s, 0, M.sbScore);
   }
-  for (const hx of [-2.75, 2.75]) {
-    for (const hz of [-2.75, 2.75]) {
-      b.box(hx, (18.2 + roofY) / 2, hz, 0.16, roofY - 18.2, 0.16, M.trussWhite);
+  for (const hx of [-3.8, 3.8]) {
+    for (const hz of [-3.8, 3.8]) {
+      b.box(hx, (boardTop + roofY) / 2, hz, 0.18, roofY - boardTop, 0.18, M.trussWhite);
     }
   }
-  const ringPath = roundedRectPath(3.78, 3.78, 0.32, 4, 4, 6);
-  ringStrip(b, ringPath, 11.41, offsetPath(ringPath, 0.14), 11.41, M.lampGlow, () => [0, -1, 0]);
-  ringStrip(b, offsetPath(ringPath, -0.22), 11.42, offsetPath(ringPath, -0.14), 11.42, M.greenGlow, () => [0, -1, 0]);
+  const ringPath = roundedRectPath(4.0, 4.0, 0.32, 4, 4, 6);
+  ringStrip(b, ringPath, 10.82, offsetPath(ringPath, 0.16), 10.82, M.lampGlow, () => [0, -1, 0]);
+  ringStrip(b, offsetPath(ringPath, -0.22), 10.84, offsetPath(ringPath, -0.14), 10.84, M.greenGlow, () => [0, -1, 0]);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
     const sx = Math.cos(a) * 9.0, sz = Math.sin(a) * 9.0;
-    b.box(sx, 18.8, sz, 0.72, 2.1, 0.90, M.speakerBlack, 0, -a, 0.18);
-    b.box(sx, (roofY + 19.8) / 2, sz, 0.12, roofY - 19.8, 0.12, M.speakerBlack);
+    b.box(sx, 19.0, sz, 0.78, 2.2, 1.0, M.speakerBlack, 0, -a, 0.18);
+    b.box(sx, (roofY + 20.1) / 2, sz, 0.14, roofY - 20.1, 0.14, M.speakerBlack);
   }
 }
 
@@ -177,7 +180,8 @@ export function buildArena() {
       name: 'concourse',
     }),
     creamWall: makeMaterial({
-      color: lin([211, 196, 168]),
+      color: lin([229, 220, 201]),
+      emissive: lin([229, 220, 201]).slice(0, 3).map((v) => v * 0.10),
       roughness: 0.78,
       doubleSided: true,
       name: 'creamWall',
@@ -269,13 +273,25 @@ export function buildArena() {
       doubleSided: true,
       name: 'bannerAtlas',
     }),
-    trussWhite: makeMaterial({ color: lin([236, 232, 220]), roughness: 0.55, metallic: 0.25, name: 'trussWhite' }),
-    roofDeck: makeMaterial({ color: lin([200, 194, 180]), roughness: 0.75, doubleSided: true, name: 'roofDeck' }),
+    trussWhite: makeMaterial({
+      color: lin([244, 241, 232]),
+      emissive: lin([244, 241, 232]).slice(0, 3).map((v) => v * 0.08),
+      roughness: 0.55,
+      metallic: 0.25,
+      name: 'trussWhite',
+    }),
+    roofDeck: makeMaterial({
+      color: lin([222, 216, 200]),
+      emissive: lin([222, 216, 200]).slice(0, 3).map((v) => v * 0.18),
+      roughness: 0.75,
+      doubleSided: true,
+      name: 'roofDeck',
+    }),
     speakerBlack: makeMaterial({ color: lin([14, 16, 18]), roughness: 0.6, doubleSided: true, name: 'speakerBlack' }),
     lampGlow: makeMaterial({
-      color: lin([255, 244, 224]),
-      emissive: lin([255, 248, 232]).slice(0, 3),
-      roughness: 0.2,
+      color: [1, 1, 1, 1],
+      emissive: [2.5, 2.5, 2.5],
+      roughness: 0.15,
       doubleSided: true,
       name: 'lampGlow',
     }),
@@ -486,18 +502,18 @@ export function buildArena() {
   const upperSteps = stairBowl(b, {
     path: fasciaPath,
     y: 15.10,
-    rows: 11,
+    rows: 13,
     tread: 0.85,
     riser: 0.55,
     seatMat: M.tier,
-    riserMat: M.concrete,
+    riserMat: M.tier,
     gaps: upperGaps,
     gapMat: M.stairs,
     uvRepeat: 48,
   });
   let seatPath = fasciaPath;
   let seatY = 15.10;
-  for (let row = 0; row < 11; row++) {
+  for (let row = 0; row < 13; row++) {
     const seatBase = offsetPath(seatPath, 0.25);
     const seatTop = offsetPath(seatPath, 0.33);
     for (let i = 0; i < seatPath.length; i++) {
@@ -542,7 +558,7 @@ export function buildArena() {
     return dz === 0 ? 54 : roofCenterX + Math.sqrt(Math.max(0, 43 * 43 - dz * dz));
   };
   const trussZs = [-67, -54, -41, -28, -15, 0, 15, 28, 41, 54, 67];
-  const trusses = [];
+  const purlinXs = Array.from({ length: 21 }, (_, i) => (i - 10) * 5);
   for (const tz of trussZs) {
     const halfSpan = halfSpanAt(tz);
     const segs = 16;
@@ -561,28 +577,20 @@ export function buildArena() {
       b.beam(botPts[i], topPts[i + 1], 0.20, M.trussWhite);
     }
     b.beam(botPts[segs], topPts[segs], 0.22, M.trussWhite);
-    trusses.push({ z: tz, topPts, botPts, segs });
 
-    for (const scale of [-0.78, -0.56, -0.34, -0.12, 0.12, 0.34, 0.56, 0.78]) {
-      const lx = scale * halfSpan;
+    for (const lx of purlinXs) {
+      if (Math.abs(lx) > halfSpan - 0.7) continue;
       const u = lx / halfSpan;
       const ly = roofY - 0.5 + (1 - u * u) * 1.9;
-      b.box(lx, ly - 0.17, tz, 0.78, 0.26, 0.58, M.speakerBlack);
-      b.box(lx, ly - 0.34, tz, 0.58, 0.05, 0.40, M.lampGlow);
-    }
-  }
-  for (let t = 0; t < trusses.length - 1; t++) {
-    const a = trusses[t], c = trusses[t + 1];
-    for (let i = 0; i < a.segs; i += 2) {
-      b.beam(a.topPts[i], c.topPts[i + 1], 0.13, M.trussWhite);
-      b.beam(a.topPts[i + 1], c.topPts[i], 0.13, M.trussWhite);
+      b.box(lx, ly - 0.17, tz, 1.05, 0.28, 0.72, M.speakerBlack);
+      b.box(lx, ly - 0.34, tz, 1.0, 0.06, 0.60, M.lampGlow);
     }
   }
 
-  for (const px of [-40, -32, -24, -16, -8, 0, 8, 16, 24, 32, 40]) {
+  for (const px of purlinXs) {
     const dx = Math.max(0, Math.abs(px) - roofCenterX);
     const endZ = roofCornerZ + Math.sqrt(Math.max(0, 43 * 43 - dx * dx));
-    b.box(px, roofY + 1.15, 0, 0.26, 0.26, endZ * 2, M.trussWhite);
+    b.box(px, roofY + 2.05, 0, 0.22, 0.22, endZ * 2, M.trussWhite);
   }
   for (const cx of [-12, 12]) {
     b.box(cx, roofY - 0.05, 0, 1.3, 0.14, 60, M.trussWhite);
@@ -591,25 +599,25 @@ export function buildArena() {
   }
 
   for (let i = 0; i < 7; i++) {
-    const bx = (i - 3) * 1.6;
-    const bz = 26;
-    const banW = 1.25, banH = 3.50, topY = 24.95;
+    const bx = (i - 3) * 3.1;
+    const bz = 24;
+    const banW = 2.6, banH = 5.4, topY = 23;
     const index = i, col = index % 8, row = Math.floor(index / 8);
     const chordY = roofY - 0.5 + (1 - (bx / halfSpanAt(28)) ** 2) * 1.9;
-    for (const dx of [-0.38, 0.38]) {
+    for (const dx of [-0.85, 0.85]) {
       b.beam([bx + dx, chordY, 28], [bx + dx, topY, bz], 0.05, M.trussWhite);
     }
     b.panel(bx, topY - banH / 2, bz, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
     b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
   }
   for (let i = 0; i < 14; i++) {
-    const bx = (i - 6.5) * 3.2;
-    const bz = 58;
-    const banW = 1.6, banH = 3.50, topY = 24.95;
+    const bx = (i - 6.5) * 2.9;
+    const bz = 45;
+    const banW = 2.6, banH = 5.4, topY = 23;
     const index = 7 + i, col = index % 8, row = Math.floor(index / 8);
-    const chordY = roofY - 0.5 + (1 - (bx / halfSpanAt(55)) ** 2) * 1.9;
-    for (const dx of [-0.48, 0.48]) {
-      b.beam([bx + dx, chordY, 55], [bx + dx, topY, bz], 0.05, M.trussWhite);
+    const chordY = roofY - 0.5 + (1 - (bx / halfSpanAt(41)) ** 2) * 1.9;
+    for (const dx of [-0.85, 0.85]) {
+      b.beam([bx + dx, chordY, 41], [bx + dx, topY, bz], 0.05, M.trussWhite);
     }
     b.panel(bx, topY - banH / 2, bz, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
     b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);

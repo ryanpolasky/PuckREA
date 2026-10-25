@@ -269,10 +269,10 @@ def make_seat_row_upper():
     W, H = 104, 100
     im = Image.new('RGBA', (W, H), (7, 9, 8, 255))
     d = ImageDraw.Draw(im)
-    d.rounded_rectangle([5, 4, W - 6, 91], radius=15, fill=(20, 48, 34, 255), outline=(5, 8, 7, 255), width=5)
-    d.rounded_rectangle([11, 9, W - 12, 85], radius=11, fill=(24, 56, 38, 255))
+    d.rounded_rectangle([5, 4, W - 6, 91], radius=15, fill=(30, 72, 46, 255), outline=(5, 8, 7, 255), width=5)
+    d.rounded_rectangle([11, 9, W - 12, 85], radius=11, fill=(34, 78, 50, 255))
     for y in [28, 43, 58, 72]:
-        d.line([(18, y), (W - 19, y)], fill=(17, 43, 30, 255), width=3)
+        d.line([(18, y), (W - 19, y)], fill=(21, 52, 35, 255), width=3)
     d.rectangle([0, 90, W, H], fill=(0, 0, 0, 255))
     d.rectangle([0, 8, 5, 87], fill=(110, 48, 28, 255))
     d.rectangle([W - 6, 8, W - 1, 87], fill=(110, 48, 28, 255))
