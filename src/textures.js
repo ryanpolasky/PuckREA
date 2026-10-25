@@ -99,6 +99,7 @@ export function buildTextures() {
     ['center_ice', 'assets/generated/center_ice.png', true],
     ['ice_sioux', 'assets/generated/ice_sioux.png', true],
     ['banners', 'assets/generated/banners.png', true],
+    ['suite_band', 'assets/generated/suite_band.png', false],
     ['suite_interior', 'assets/generated/suite_interior.png', true],
     ['seat_row_upper', 'assets/generated/seat_row_upper.png', false],
     ['seat_dark_green', 'assets/generated/seat_dark_green.png', false],

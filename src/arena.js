@@ -4,7 +4,7 @@ import { makeMaterial } from './gltf.js';
 import { buildTextures } from './textures.js';
 
 const CROWD = { lower: 0.5, upper: 0.12, suite: 3 };
-const SUITE = { width: 3.8, spacing: 3.82, front: 0.02, floorY: 10.62, ceilingY: 13.08 };
+const SUITE = { width: 3.8, spacing: 4.2, front: 0.02, floorY: 10.62, ceilingY: 13.08 };
 
 const lin = (c) => {
   const f = (v) => Math.pow((v / 255 + 0.055) / 1.055, 2.4);
@@ -91,7 +91,7 @@ function subtractSuiteOpening(poly, center) {
   return outside;
 }
 
-function clipWallTriangle(vertices, centers) {
+function clipWallTriangle(vertices, centers, targetDepth = SUITE.front) {
   let polygons = [vertices];
   let changed = false;
   for (const center of centers) {
@@ -100,7 +100,7 @@ function clipWallTriangle(vertices, centers) {
     const candidate = polygons.some((poly) => {
       const depths = poly.map(depth), alongs = poly.map(along), ys = poly.map((v) => v.position[1]);
       return Math.max(...depths) - Math.min(...depths) < 1e-3
-        && Math.abs(depths[0] - SUITE.front) < 5e-3
+        && Math.abs(depths[0] - targetDepth) < 5e-3
         && Math.max(...alongs) >= -SUITE.width / 2 && Math.min(...alongs) <= SUITE.width / 2
         && Math.max(...ys) >= SUITE.floorY && Math.min(...ys) <= SUITE.ceilingY;
     });
@@ -119,6 +119,58 @@ function clipWallTriangle(vertices, centers) {
     if (!polygons.length) break;
   }
   return changed ? polygons : null;
+}
+
+function distanceToPath(x, z, path) {
+  let closest = Infinity;
+  for (let i = 0; i < path.length; i++) {
+    const a = path[i], b = path[(i + 1) % path.length];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+    closest = Math.min(closest, Math.hypot(x - a.x - t * dx, z - a.z - t * dz));
+  }
+  return closest;
+}
+
+function clipPrimsToSuiteOpenings(prims, centers, targetDepth) {
+  return prims.map((prim) => {
+    const positions = [...prim.positions], normals = [...prim.normals], uvs = [...prim.uvs], indices = [];
+    for (let i = 0; i < prim.indices.length; i += 3) {
+      const ids = prim.indices.slice(i, i + 3);
+      const vertices = ids.map((vertex) => ({
+        position: [positions[vertex * 3], positions[vertex * 3 + 1], positions[vertex * 3 + 2]],
+        normal: [normals[vertex * 3], normals[vertex * 3 + 1], normals[vertex * 3 + 2]],
+        uv: [uvs[vertex * 2], uvs[vertex * 2 + 1]],
+      }));
+      const pieces = clipWallTriangle(vertices, centers, targetDepth);
+      if (!pieces) {
+        indices.push(...ids);
+        continue;
+      }
+      for (const polygon of pieces) {
+        for (let j = 1; j + 1 < polygon.length; j++) {
+          const triangle = [polygon[0], polygon[j], polygon[j + 1]];
+          const ab = triangle[1].position.map((v, k) => v - triangle[0].position[k]);
+          const ac = triangle[2].position.map((v, k) => v - triangle[0].position[k]);
+          const area = Math.hypot(
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+          ) / 2;
+          if (area < 1e-8) continue;
+          const base = positions.length / 3;
+          for (const vertex of triangle) {
+            const length = Math.hypot(...vertex.normal) || 1;
+            positions.push(...vertex.position);
+            normals.push(...vertex.normal.map((v) => v / length));
+            uvs.push(...vertex.uv);
+          }
+          indices.push(base, base + 1, base + 2);
+        }
+      }
+    }
+    return { ...prim, positions, normals, uvs, indices };
+  });
 }
 
 function quatFromAxes(x, y, z) {
@@ -641,6 +693,14 @@ export function buildArena() {
       doubleSided: true,
       name: 'creamWall',
     }),
+    suiteBand: makeMaterial({
+      color: [1, 1, 1, 1],
+      texture: texIdx('suite_band'),
+      emissive: [0.12, 0.08, 0.04],
+      roughness: 0.32,
+      doubleSided: true,
+      name: 'suiteBand',
+    }),
     suiteInterior: makeMaterial({
       color: [1, 1, 1, 1],
       texture: texIdx('suite_interior'),
@@ -774,6 +834,7 @@ export function buildArena() {
   const suitePath = roundedRectPath(41.52, 64.76, 31.58, 16, 28, 16);
   const fasciaPath = offsetPath(suitePath, -0.02);
   const suiteOpeningCenters = suiteCenters(fasciaPath);
+  ringStrip(b, fasciaPath, 10.60, fasciaPath, 13.15, M.suiteBand, (m) => [-m.x, 0, -m.z], null, null, fasciaPath.totalLen / 3);
 
   // 1. LOAD EXTRACTED BOWL, STAIRS, RAILINGS, 3,000+ 3D STADIUM CHAIRS, BENCHES, AND SPECTATORS
   const bowlMeta = JSON.parse(readFileSync('assets/bowl.json', 'utf8'));
@@ -838,7 +899,10 @@ export function buildArena() {
       const cz = (z0 + z1 + z2) / 3;
       const maxY = Math.max(y0, y1, y2);
       if (pm.mat === 'Glass' && maxY < 4.0) continue;
-      if (pm.mat === 'Wall') {
+      if ((pm.mat === 'Wall' || pm.mat === 'TunnelDark')
+        && cy >= 10.60 && cy <= 13.15
+        && distanceToPath(cx, cz, fasciaPath) < 0.11) continue;
+      if (pm.mat === 'Wall' || pm.mat === 'TunnelDark') {
         const vertices = [i0, i1, i2].map((vertex) => ({
           position: [pos[vertex * 3], pos[vertex * 3 + 1], pos[vertex * 3 + 2]],
           normal: [norm[vertex * 3], norm[vertex * 3 + 1], norm[vertex * 3 + 2]],
@@ -1146,8 +1210,19 @@ export function buildArena() {
     { name: 'WarmBowl_West', type: 'point', pos: [-32, 14.5, 0], color: [1.0, 0.84, 0.58], intensity: 24, range: 55 },
   ];
 
-  const suitePrims = suiteBuilder.toPrims(mats);
-  const allPrims = [...importedPrims, ...b.toPrims(mats), ...suitePrims];
+  const suiteBuilderPrims = suiteBuilder.toPrims(mats);
+  const arenaPrims = b.toPrims(mats);
+  const suiteBandIndex = mats.indexOf(M.suiteBand);
+  const suiteBandPrims = clipPrimsToSuiteOpenings(
+    arenaPrims.filter((prim) => prim.material === suiteBandIndex),
+    suiteOpeningCenters,
+    0,
+  );
+  const suiteBasePrims = arenaPrims.filter((prim) => prim.material !== suiteBandIndex);
+  const suitePrims = [...suiteBuilderPrims, ...suiteBandPrims];
+  const suiteTriangles = suiteData.triangles + suiteBandPrims.reduce((sum, prim) => sum + prim.indices.length / 3, 0);
+  if (suiteTriangles > 4000) throw new Error(`Suite geometry exceeds 4,000 triangles: ${suiteTriangles}`);
+  const allPrims = [...importedPrims, ...suiteBasePrims, ...suitePrims];
   const spectators = [...filteredSpectators, ...lowerCrowd.added, ...upperCrowd, ...suiteData.spectators];
   const crowdCounts = {
     lower: filteredSpectators.length + lowerCrowd.added.length,
@@ -1168,7 +1243,7 @@ export function buildArena() {
     importedPrims,
     suitePrims,
     suiteCenters: suiteData.centers,
-    suiteTriangles: suiteData.triangles,
+    suiteTriangles,
     crowdCounts,
     crowdDensity: lowerCrowd.density,
   };
