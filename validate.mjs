@@ -50,7 +50,15 @@ if (gltf.meshes[boxNode.mesh]?.name !== 'REA_Board_Box' || gltf.meshes[cylinderN
   throw new Error('board meshes missing');
 }
 if (JSON.stringify(cylinderNode.scale) !== '[0,0,0]') throw new Error('cylinder board must default to scale zero');
+for (const [boardNode, prefix] of [[boxNode, 'Box'], [cylinderNode, 'Cyl']]) {
+  for (const side of ['PZ', 'NZ', 'PX', 'NX']) {
+    const anchorName = `REA_ScoreAnchor_${prefix}_${side}`;
+    const anchorIndex = gltf.nodes.findIndex((n) => n.name === anchorName);
+    if (anchorIndex < 0 || !boardNode.children?.includes(anchorIndex)) throw new Error(`${anchorName} missing from board node`);
+  }
+}
 const manifest = JSON.parse(readFileSync('dist/Ralph Engelstad Arena/Ralph Engelstad Arena.al.json', 'utf8'));
 console.log(`GLB valid: ${gltf.meshes.length} meshes, ${verts} verts, ${tris} tris, ${gltf.materials.length} materials, ${(gltf.textures || []).length} textures, ${specNodes.length} spectator spots`);
 console.log(`board nodes: ${boxNode.name} (visible), ${cylinderNode.name} (scale 0)`);
+console.log('score anchors: 4 box + 4 cylinder');
 console.log(`manifest: "${manifest.name}" by ${manifest.author} -> ${manifest.model}`);

@@ -19,6 +19,7 @@ Requires [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3802863574]
 [b]Includes[/b]
 [list]
 [*] Full lower bowl, luxury suites, brick medallion upper wall, championship banners, and center jumbotron
+[*] Jumbotron displays the live game score
 [*] Center-ice Fighting Sioux crest and local dasher/ribbon boards
 [*] 3D positional goal horn and fight songs ("Stand Up and Cheer", "Fight on Sioux")
 [/list]

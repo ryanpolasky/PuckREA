@@ -256,6 +256,25 @@ def make_suite_band():
         d.ellipse([x - 6, 446, x + 6, 458], fill=(255, 233, 155, 255))
     im.save(OUT / 'suite_band.png')
 
+def make_suite_interior():
+    W, H = 256, 128
+    im = Image.new('RGBA', (W, H), (194, 158, 111, 255))
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, 0, W, 20], fill=(224, 201, 163, 255))
+    d.rectangle([0, 88, W, H], fill=(84, 43, 27, 255))
+    d.rectangle([8, 24, 248, 82], fill=(135, 91, 55, 255))
+    d.rectangle([20, 30, 236, 76], fill=(196, 147, 91, 255))
+    d.rectangle([78, 34, 178, 75], fill=(28, 26, 23, 255))
+    d.rectangle([84, 39, 172, 70], fill=(246, 190, 103, 255))
+    d.rectangle([90, 44, 166, 66], fill=(255, 221, 155, 255))
+    d.rectangle([0, 84, W, 92], fill=(220, 178, 119, 255))
+    for x in range(18, W, 44):
+        d.rectangle([x, 96, x + 36, 123], fill=(121, 63, 35, 255), outline=(61, 33, 23, 255), width=3)
+        d.rectangle([x + 4, 101, x + 32, 106], fill=(167, 91, 49, 255))
+    for x in [12, 244]:
+        d.ellipse([x - 5, 52, x + 5, 62], fill=(255, 222, 151, 255))
+    im.save(OUT / 'suite_interior.png')
+
 def make_seat_row_upper():
     W, H = 104, 100
     im = Image.new('RGBA', (W, H), (7, 9, 8, 255))
@@ -281,6 +300,29 @@ def make_scoreboard_score():
     fit_text(d, (24, 282, W - 24, 354), 'SHOTS 24–18   •   PENALTIES 2:00 / 2:00', 'arialbd.ttf', 34, (255, 85, 66, 255))
     fit_text(d, (24, 382, W - 24, 450), 'POWER PLAY 1:18   •   GOALIE #31', 'arialbd.ttf', 32, (91, 238, 139, 255))
     im.save(OUT / 'scoreboard_score.png')
+
+def make_scoreboard_score_live():
+    W, H = 1024, 512
+    im = Image.new('RGBA', (W, H), (5, 8, 7, 255))
+    d = ImageDraw.Draw(im)
+    d.rectangle([8, 8, W - 9, H - 9], outline=(0, 142, 65, 255), width=7)
+    d.rectangle([18, 18, W - 19, H - 19], outline=(70, 95, 79, 255), width=2)
+    for text, u, v in [('SIOUX', 0.18, 0.80), ('VISITOR', 0.82, 0.80), ('PERIOD', 0.50, 0.30)]:
+        cx, cy = int(u * W), int((1 - v) * H)
+        fit_text(d, (cx - 125, cy - 31, cx + 125, cy + 31), text, 'arialbd.ttf', 46, (231, 190, 104, 255))
+    for u, v, w, h in [
+        (0.18, 0.45, 0.26, 0.42),
+        (0.50, 0.66, 0.40, 0.36),
+        (0.82, 0.45, 0.26, 0.42),
+        (0.50, 0.13, 0.14, 0.18),
+    ]:
+        left = int((u - w / 2) * W)
+        top = int((1 - v - h / 2) * H)
+        right = int((u + w / 2) * W)
+        bottom = int((1 - v + h / 2) * H)
+        d.rounded_rectangle([left, top, right, bottom], radius=12, fill=(8, 13, 11, 255), outline=(0, 106, 50, 255), width=5)
+        d.rounded_rectangle([left + 8, top + 8, right - 8, bottom - 8], radius=8, outline=(30, 42, 35, 255), width=2)
+    im.save(OUT / 'scoreboard_score_live.png')
 
 def make_banners():
     cols, rows = 8, 3
@@ -404,8 +446,10 @@ MAKERS = [
     ('led_ribbon', make_led_ribbon),
     ('scoreboard_main', make_scoreboard_main),
     ('scoreboard_score', make_scoreboard_score),
+    ('scoreboard_score_live', make_scoreboard_score_live),
     ('banners', make_banners),
     ('suite_band', make_suite_band),
+    ('suite_interior', make_suite_interior),
     ('seat_row_upper', make_seat_row_upper),
     ('seats', make_seats),
     ('stairs', make_stairs),
