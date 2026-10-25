@@ -612,15 +612,15 @@ export function buildArena() {
   }
   for (let i = 0; i < 14; i++) {
     const bx = (i - 6.5) * 2.9;
-    const bz = 45;
+    const bz = -45;
     const banW = 2.6, banH = 5.4, topY = 23;
     const index = 7 + i, col = index % 8, row = Math.floor(index / 8);
-    const chordY = roofY - 0.5 + (1 - (bx / halfSpanAt(41)) ** 2) * 1.9;
+    const chordY = roofY - 0.5 + (1 - (bx / halfSpanAt(-41)) ** 2) * 1.9;
     for (const dx of [-0.85, 0.85]) {
-      b.beam([bx + dx, chordY, 41], [bx + dx, topY, bz], 0.05, M.trussWhite);
+      b.beam([bx + dx, chordY, -41], [bx + dx, topY, bz], 0.05, M.trussWhite);
     }
-    b.panel(bx, topY - banH / 2, bz, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
-    b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+    b.panel(bx, topY - banH / 2, bz, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+    b.panel(bx, topY - banH / 2, bz - 0.015, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
   }
 
   if (process.env.REA_BOARD === 'cyl') buildCylinderBoard(b, M, roofY);
