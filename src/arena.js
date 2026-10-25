@@ -24,106 +24,80 @@ function iceDisc(b, cx, cz, y, r, segs, mat, down = false) {
 
 function buildBoxBoard(b, M, roofY) {
   const sides = ['+z', '-z', '+x', '-x'];
-  const addFace = (side, width, topY, bottomY, topRadius, bottomRadius, mat) => {
-    const half = width / 2;
-    const slope = (topRadius - bottomRadius) / (topY - bottomY);
+  const addFrustumFace = (side, topHalf, bottomHalf, topY, bottomY, mat) => {
+    const slope = (topHalf - bottomHalf) / (topY - bottomY);
     let bl, br, tr, tl, hint;
     if (side === '+z') {
-      bl = [-half, bottomY, bottomRadius];
-      br = [half, bottomY, bottomRadius];
-      tr = [half, topY, topRadius];
-      tl = [-half, topY, topRadius];
+      bl = [-bottomHalf, bottomY, bottomHalf];
+      br = [bottomHalf, bottomY, bottomHalf];
+      tr = [topHalf, topY, topHalf];
+      tl = [-topHalf, topY, topHalf];
       hint = [0, -slope, 1];
     } else if (side === '-z') {
-      bl = [half, bottomY, -bottomRadius];
-      br = [-half, bottomY, -bottomRadius];
-      tr = [-half, topY, -topRadius];
-      tl = [half, topY, -topRadius];
+      bl = [bottomHalf, bottomY, -bottomHalf];
+      br = [-bottomHalf, bottomY, -bottomHalf];
+      tr = [-topHalf, topY, -topHalf];
+      tl = [topHalf, topY, -topHalf];
       hint = [0, -slope, -1];
     } else if (side === '+x') {
-      bl = [bottomRadius, bottomY, half];
-      br = [bottomRadius, bottomY, -half];
-      tr = [topRadius, topY, -half];
-      tl = [topRadius, topY, half];
+      bl = [bottomHalf, bottomY, bottomHalf];
+      br = [bottomHalf, bottomY, -bottomHalf];
+      tr = [topHalf, topY, -topHalf];
+      tl = [topHalf, topY, topHalf];
       hint = [1, -slope, 0];
     } else {
-      bl = [-bottomRadius, bottomY, -half];
-      br = [-bottomRadius, bottomY, half];
-      tr = [-topRadius, topY, half];
-      tl = [-topRadius, topY, -half];
+      bl = [-bottomHalf, bottomY, -bottomHalf];
+      br = [-bottomHalf, bottomY, bottomHalf];
+      tr = [-topHalf, topY, topHalf];
+      tl = [-topHalf, topY, -topHalf];
       hint = [-1, -slope, 0];
     }
     b.quad(bl, br, tr, tl, mat, hint);
   };
-  const addCornerPanels = (topHalf, topY, bottomY, topRadius, bottomRadius, mat, bottomHalf = topHalf) => {
-    const slope = (topRadius - bottomRadius) / (topY - bottomY);
-    for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        b.quad(
-          [sx * topHalf, topY, sz * topRadius],
-          [sx * topRadius, topY, sz * topHalf],
-          [sx * bottomRadius, bottomY, sz * bottomHalf],
-          [sx * bottomHalf, bottomY, sz * bottomRadius],
-          mat,
-          [sx, -slope, sz]
-        );
-      }
-    }
+  const addFrustum = (topHalf, bottomHalf, topY, bottomY, mat) => {
+    for (const side of sides) addFrustumFace(side, topHalf, bottomHalf, topY, bottomY, mat);
   };
-  const addSideBands = (topWidth, bottomWidth, topY, bottomY, topRadius, bottomRadius, mat) => {
-    const topHalf = topWidth / 2, bottomHalf = bottomWidth / 2;
-    const slope = (topRadius - bottomRadius) / (topY - bottomY);
-    for (const side of sides) {
-      let bl, br, tr, tl, hint;
-      if (side === '+z') {
-        bl = [-bottomHalf, bottomY, bottomRadius];
-        br = [bottomHalf, bottomY, bottomRadius];
-        tr = [topHalf, topY, topRadius];
-        tl = [-topHalf, topY, topRadius];
-        hint = [0, -slope, 1];
-      } else if (side === '-z') {
-        bl = [bottomHalf, bottomY, -bottomRadius];
-        br = [-bottomHalf, bottomY, -bottomRadius];
-        tr = [-topHalf, topY, -topRadius];
-        tl = [topHalf, topY, -topRadius];
-        hint = [0, -slope, -1];
-      } else if (side === '+x') {
-        bl = [bottomRadius, bottomY, bottomHalf];
-        br = [bottomRadius, bottomY, -bottomHalf];
-        tr = [topRadius, topY, -topHalf];
-        tl = [topRadius, topY, topHalf];
-        hint = [1, -slope, 0];
-      } else {
-        bl = [-bottomRadius, bottomY, -bottomHalf];
-        br = [-bottomRadius, bottomY, bottomHalf];
-        tr = [-topRadius, topY, topHalf];
-        tl = [-topRadius, topY, -topHalf];
-        hint = [-1, -slope, 0];
-      }
-      b.quad(bl, br, tr, tl, mat, hint);
+  const addScreen = (side, width, height, centerY, topHalf, bottomHalf, topY, bottomY, mat) => {
+    const slope = (topHalf - bottomHalf) / (topY - bottomY);
+    const q = Math.sqrt(1 + slope * slope);
+    const radius = bottomHalf + slope * (centerY - bottomY);
+    let center, normal, horizontal, vertical;
+    if (side === '+z') {
+      center = [0, centerY, radius];
+      normal = [0, -slope / q, 1 / q];
+      horizontal = [1, 0, 0];
+      vertical = [0, 1 / q, slope / q];
+    } else if (side === '-z') {
+      center = [0, centerY, -radius];
+      normal = [0, -slope / q, -1 / q];
+      horizontal = [-1, 0, 0];
+      vertical = [0, 1 / q, -slope / q];
+    } else if (side === '+x') {
+      center = [radius, centerY, 0];
+      normal = [1 / q, -slope / q, 0];
+      horizontal = [0, 0, -1];
+      vertical = [slope / q, 1 / q, 0];
+    } else {
+      center = [-radius, centerY, 0];
+      normal = [-1 / q, -slope / q, 0];
+      horizontal = [0, 0, 1];
+      vertical = [-slope / q, 1 / q, 0];
     }
-    addCornerPanels(topHalf, topY, bottomY, topRadius, bottomRadius, mat, bottomHalf);
-  };
-  const addTier = (width, topY, bottomY, topRadius, bottomRadius, mat) => {
-    const casingWidth = width + 0.30;
-    const casingTopRadius = topRadius - 0.04;
-    const casingBottomRadius = bottomRadius - 0.04;
-    for (const side of sides) {
-      addFace(side, casingWidth, topY, bottomY, casingTopRadius, casingBottomRadius, M.speakerBlack);
-    }
-    addCornerPanels(casingWidth / 2, topY, bottomY, casingTopRadius, casingBottomRadius, M.speakerBlack);
-    for (const side of sides) {
-      addFace(side, width, topY, bottomY, topRadius, bottomRadius, mat);
-    }
+    const corner = (h, v) => center.map((c, i) =>
+      c + normal[i] * 0.02 + horizontal[i] * h * width / 2 + vertical[i] * v * height / 2
+    );
+    b.quad(corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1), mat, normal);
   };
 
-  addTier(11.0, 20.6, 15.2, 6.4, 5.3, M.sbMain);
-  addSideBands(11.3, 6.9, 15.2, 14.6, 5.26, 4.36, M.speakerBlack);
-  addTier(6.6, 14.6, 11.3, 4.4, 3.73, M.sbScore);
+  addFrustum(6.4, 5.3, 20.6, 15.2, M.speakerBlack);
+  for (const side of sides) addScreen(side, 9.8, 4.9, 17.9, 6.4, 5.3, 20.6, 15.2, M.sbMain);
+  addFrustum(5.3, 4.4, 15.2, 14.6, M.speakerBlack);
+  addFrustum(4.4, 3.73, 14.6, 11.3, M.speakerBlack);
+  for (const side of sides) addScreen(side, 6.6, 3.3, 12.95, 4.4, 3.73, 14.6, 11.3, M.sbScore);
   b.box(0, 20.74, 0, 12.8, 0.28, 12.8, M.speakerBlack);
   b.box(0, 11.10, 0, 7.5, 0.40, 7.5, M.speakerBlack);
-  const bandPath = roundedRectPath(4.55, 4.93, 0.20, 8, 8, 6);
-  ringStrip(b, bandPath, 14.82, bandPath, 14.98, M.ledRibbon, (m) => [m.x, 0, m.z], null, null, bandPath.totalLen / 4.0);
+  const bandRadius = (y) => 4.4 + ((y - 14.6) / 0.6) * 0.9 + 0.02;
+  for (const side of sides) addFrustumFace(side, bandRadius(14.98), bandRadius(14.82), 14.98, 14.82, M.ledRibbon);
   for (const s of [-1, 1]) {
     b.panel(0, 20.94, s * 6.42, 11.8, 0.12, 0, s, M.ledRibbon, 0, 0, 3.1, 1);
     b.panel(s * 6.42, 20.94, 0, 11.8, 0.12, s, 0, M.ledRibbon, 0, 0, 3.1, 1);
@@ -611,28 +585,39 @@ export function buildArena() {
     b.box(cx + 0.6, roofY + 0.45, 0, 0.08, 0.85, 60, M.trussWhite);
   }
 
+  const bannerAnchorX = (x) => {
+    for (let distance = 0; distance <= 2; distance += 0.05) {
+      for (const direction of [1, -1]) {
+        const candidate = x + direction * distance;
+        if (purlinXs.every((px) => Math.abs(candidate - px) >= 0.8)) return candidate;
+      }
+    }
+    return x;
+  };
+
   for (let i = 0; i < 7; i++) {
-    const bx = -22.5;
-    const bz = (i - 3) * 2.8;
+    const bx = (i - 3) * 3.1;
+    const bz = 24;
     const banW = 2.6, banH = 5.4, topY = 23;
     const index = i, col = index % 8, row = Math.floor(index / 8);
-    for (const dz of [-0.85, 0.85]) {
-      b.beam([-25, roofY + 2.05, bz + dz], [bx, topY, bz + dz], 0.05, M.trussWhite);
+    for (const dx of [-0.85, 0.85]) {
+      const hx = bx + dx;
+      b.beam([bannerAnchorX(hx), roofY + 2.2, 28], [hx, topY, bz], 0.05, M.trussWhite);
     }
-    b.panel(bx, topY - banH / 2, bz, banW, banH, 1, 0, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
-    b.panel(bx - 0.015, topY - banH / 2, bz, banW, banH, -1, 0, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+    b.panel(bx, topY - banH / 2, bz, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+    b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
   }
   for (let i = 0; i < 14; i++) {
     const bx = (i - 6.5) * 2.9;
-    const bz = -45;
-    const banW = 2.6, banH = 5.4, topY = 26.5;
+    const bz = 45;
+    const banW = 2.6, banH = 5.4, topY = 23;
     const index = 7 + i, col = index % 8, row = Math.floor(index / 8);
-    const chordY = roofY - 0.5 + (1 - (bx / halfSpanAt(-41)) ** 2) * 1.9;
     for (const dx of [-0.85, 0.85]) {
-      b.beam([bx + dx, chordY, -41], [bx + dx, topY, bz], 0.05, M.trussWhite);
+      const hx = bx + dx;
+      b.beam([bannerAnchorX(hx), roofY + 2.2, 41], [hx, topY, bz], 0.05, M.trussWhite);
     }
-    b.panel(bx, topY - banH / 2, bz, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
-    b.panel(bx, topY - banH / 2, bz - 0.015, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+    b.panel(bx, topY - banH / 2, bz, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
+    b.panel(bx, topY - banH / 2, bz + 0.015, banW, banH, 0, 1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
   }
 
   buildBoxBoard(b, M, roofY);
