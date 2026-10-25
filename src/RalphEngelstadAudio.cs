@@ -127,6 +127,7 @@ namespace RalphEngelstadAudio
                 Path.Combine(asmDir, "audio"),
                 Path.Combine(asmDir, "Ralph Engelstad Arena", "audio"),
                 @"F:\SteamLibrary\steamapps\workshop\content\2994020\3802863574\Ralph Engelstad Arena\audio",
+                @"F:\SteamLibrary\steamapps\workshop\content\2994020\3802863574\Ralph Engelstad Arena BETA\audio",
                 @"C:\Projects\PuckREA\dist\Ralph Engelstad Arena\audio"
             };
             foreach (string c in candidates)
@@ -172,6 +173,7 @@ namespace RalphEngelstadAudio
         {
             if (_arenaRoot != null && _paRoot != null) return;
             GameObject found = GameObject.Find("Arena Ralph Engelstad Arena");
+            if (found == null) found = GameObject.Find("Arena Ralph Engelstad Arena BETA");
             if (found == null)
             {
                 if (_arenaBound)
