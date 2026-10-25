@@ -192,15 +192,6 @@ def make_led_ribbon():
 
     im.save(OUT / 'led_ribbon.png')
 
-# 5. JUMBOTRON TOP CROWN: "RALPH ENGELSTAD ARENA" (1024x128)
-def make_scoreboard_header():
-    im = Image.new('RGBA', (1024, 128), (6, 12, 9, 255))
-    d = ImageDraw.Draw(im)
-    d.rectangle([0, 0, 1024, 8], fill=(0, 230, 100, 255))
-    d.rectangle([0, 120, 1024, 128], fill=(0, 230, 100, 255))
-    fit_text(d, (32, 14, 992, 114), 'RALPH ENGELSTAD ARENA', 'impact.ttf', 78, (45, 255, 130, 255))
-    im.save(f'{OUT}/scoreboard_header.png')
-
 # 6. JUMBOTRON MAIN SCREEN: RYAN POLASKY GOD-AWFUL STATS SPOTLIGHT (1024x512)
 def make_scoreboard_main():
     im = Image.new('RGBA', (1024, 512), (8, 18, 13, 255))
@@ -279,15 +270,16 @@ def make_seat_row_upper():
     im.save(OUT / 'seat_row_upper.png')
 
 def make_scoreboard_score():
-    W, H = 1024, 320
+    W, H = 1024, 512
     im = Image.new('RGBA', (W, H), (5, 8, 7, 255))
     d = ImageDraw.Draw(im)
     d.rectangle([8, 8, W - 9, H - 9], outline=(0, 130, 58, 255), width=8)
-    fit_text(d, (24, 18, W - 24, 76), 'NORTH DAKOTA FIGHTING SIOUX', 'impact.ttf', 48, (230, 240, 232, 255))
-    d.line([(24, 82), (W - 24, 82)], fill=(0, 138, 60, 255), width=4)
-    fit_text(d, (20, 86, W - 20, 206), 'SIOUX 2   15:42   PERIOD 2   VISITOR 1', 'impact.ttf', 52, (255, 188, 62, 255))
-    fit_text(d, (24, 212, W - 24, 252), 'SHOTS 24–18   •   PENALTIES 2:00 / 2:00', 'arialbd.ttf', 28, (255, 85, 66, 255))
-    fit_text(d, (24, 254, W - 24, 298), 'POWER PLAY 1:18   •   GOALIE #31', 'arialbd.ttf', 24, (91, 238, 139, 255))
+    fit_text(d, (24, 20, W - 24, 80), 'NORTH DAKOTA FIGHTING SIOUX', 'impact.ttf', 48, (230, 240, 232, 255))
+    d.line([(24, 90), (W - 24, 90)], fill=(0, 138, 60, 255), width=4)
+    fit_text(d, (20, 112, W - 20, 246), 'SIOUX 2   15:42   PERIOD 2   VISITOR 1', 'impact.ttf', 58, (255, 188, 62, 255))
+    d.line([(24, 260), (W - 24, 260)], fill=(0, 138, 60, 255), width=4)
+    fit_text(d, (24, 282, W - 24, 354), 'SHOTS 24–18   •   PENALTIES 2:00 / 2:00', 'arialbd.ttf', 34, (255, 85, 66, 255))
+    fit_text(d, (24, 382, W - 24, 450), 'POWER PLAY 1:18   •   GOALIE #31', 'arialbd.ttf', 32, (91, 238, 139, 255))
     im.save(OUT / 'scoreboard_score.png')
 
 def make_banners():
@@ -410,7 +402,6 @@ MAKERS = [
     ('neutral_ice', make_neutral_ice),
     ('boards_ads', make_boards_ads),
     ('led_ribbon', make_led_ribbon),
-    ('scoreboard_header', make_scoreboard_header),
     ('scoreboard_main', make_scoreboard_main),
     ('scoreboard_score', make_scoreboard_score),
     ('banners', make_banners),

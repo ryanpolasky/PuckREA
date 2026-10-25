@@ -92,7 +92,6 @@ function decodePNG(buf) {
 
 export function buildTextures() {
   const specs = [
-    ['scoreboard_header', 'assets/generated/scoreboard_header.png', false],
     ['scoreboard_main', 'assets/generated/scoreboard_main.png', true],
     ['scoreboard_score', 'assets/generated/scoreboard_score.png', true],
     ['led_ribbon', 'assets/generated/led_ribbon.png', false],

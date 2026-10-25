@@ -8,28 +8,6 @@ const lin = (c) => {
   return [f(c[0]), f(c[1]), f(c[2]), c.length > 3 ? c[3] / 255 : 1];
 };
 
-function cylRing(b, y0, y1, r0, r1, segs, mat, outward = true, uvRepeat = 1) {
-  for (let i = 0; i < segs; i++) {
-    const a0 = (i / segs) * Math.PI * 2;
-    const a1 = ((i + 1) / segs) * Math.PI * 2;
-    const c0 = Math.cos(a0), s0 = Math.sin(a0);
-    const c1 = Math.cos(a1), s1 = Math.sin(a1);
-    const xm = (c0 + c1) / 2, zm = (s0 + s1) / 2;
-    const hn = outward ? [xm, 0, zm] : [-xm, 0, -zm];
-    const u0 = (1 - i / segs) * uvRepeat;
-    const u1 = (1 - (i + 1) / segs) * uvRepeat;
-    b.quad(
-      [c0 * r0, y0, s0 * r0],
-      [c1 * r0, y0, s1 * r0],
-      [c1 * r1, y1, s1 * r1],
-      [c0 * r1, y1, s0 * r1],
-      mat,
-      hn,
-      outward ? [[u0, 1], [u1, 1], [u1, 0], [u0, 0]] : [[u1, 1], [u0, 1], [u0, 0], [u1, 0]]
-    );
-  }
-}
-
 function iceDisc(b, cx, cz, y, r, segs, mat, down = false) {
   const hn = down ? [0, -1, 0] : [0, 1, 0];
   for (let i = 0; i < segs; i++) {
@@ -44,81 +22,125 @@ function iceDisc(b, cx, cz, y, r, segs, mat, down = false) {
   }
 }
 
-function cylArcScreen(b, y0, y1, r, centerAngle, arcSpan, segs, mat) {
-  const aStart = centerAngle + arcSpan / 2;
-  const aEnd = centerAngle - arcSpan / 2;
-  for (let i = 0; i < segs; i++) {
-    const t0 = i / segs, t1 = (i + 1) / segs;
-    const a0 = aStart + (aEnd - aStart) * t0;
-    const a1 = aStart + (aEnd - aStart) * t1;
-    const c0 = Math.cos(a0), s0 = Math.sin(a0);
-    const c1 = Math.cos(a1), s1 = Math.sin(a1);
-    b.quad(
-      [c0 * r, y0, s0 * r],
-      [c1 * r, y0, s1 * r],
-      [c1 * r, y1, s1 * r],
-      [c0 * r, y1, s0 * r],
-      mat,
-      [(c0 + c1) / 2, 0, (s0 + s1) / 2],
-      [[t0, 1], [t1, 1], [t1, 0], [t0, 0]]
-    );
-  }
-}
-
 function buildBoxBoard(b, M, roofY) {
-  const videoY = 16.15;
-  const boardTop = 18.70;
-  const side = 5.0;
-  const scoreY = 12.25;
-  const scoreSide = 4.0;
-  b.box(0, videoY, 0, side * 2, 5.1, side * 2, M.speakerBlack);
-  b.box(0, scoreY, 0, scoreSide * 2, 2.7, scoreSide * 2, M.speakerBlack);
+  const sides = ['+z', '-z', '+x', '-x'];
+  const addFace = (side, width, topY, bottomY, topRadius, bottomRadius, mat) => {
+    const half = width / 2;
+    const slope = (topRadius - bottomRadius) / (topY - bottomY);
+    let bl, br, tr, tl, hint;
+    if (side === '+z') {
+      bl = [-half, bottomY, bottomRadius];
+      br = [half, bottomY, bottomRadius];
+      tr = [half, topY, topRadius];
+      tl = [-half, topY, topRadius];
+      hint = [0, -slope, 1];
+    } else if (side === '-z') {
+      bl = [half, bottomY, -bottomRadius];
+      br = [-half, bottomY, -bottomRadius];
+      tr = [-half, topY, -topRadius];
+      tl = [half, topY, -topRadius];
+      hint = [0, -slope, -1];
+    } else if (side === '+x') {
+      bl = [bottomRadius, bottomY, half];
+      br = [bottomRadius, bottomY, -half];
+      tr = [topRadius, topY, -half];
+      tl = [topRadius, topY, half];
+      hint = [1, -slope, 0];
+    } else {
+      bl = [-bottomRadius, bottomY, -half];
+      br = [-bottomRadius, bottomY, half];
+      tr = [-topRadius, topY, half];
+      tl = [-topRadius, topY, -half];
+      hint = [-1, -slope, 0];
+    }
+    b.quad(bl, br, tr, tl, mat, hint);
+  };
+  const addCornerPanels = (topHalf, topY, bottomY, topRadius, bottomRadius, mat, bottomHalf = topHalf) => {
+    const slope = (topRadius - bottomRadius) / (topY - bottomY);
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        b.quad(
+          [sx * topHalf, topY, sz * topRadius],
+          [sx * topRadius, topY, sz * topHalf],
+          [sx * bottomRadius, bottomY, sz * bottomHalf],
+          [sx * bottomHalf, bottomY, sz * bottomRadius],
+          mat,
+          [sx, -slope, sz]
+        );
+      }
+    }
+  };
+  const addSideBands = (topWidth, bottomWidth, topY, bottomY, topRadius, bottomRadius, mat) => {
+    const topHalf = topWidth / 2, bottomHalf = bottomWidth / 2;
+    const slope = (topRadius - bottomRadius) / (topY - bottomY);
+    for (const side of sides) {
+      let bl, br, tr, tl, hint;
+      if (side === '+z') {
+        bl = [-bottomHalf, bottomY, bottomRadius];
+        br = [bottomHalf, bottomY, bottomRadius];
+        tr = [topHalf, topY, topRadius];
+        tl = [-topHalf, topY, topRadius];
+        hint = [0, -slope, 1];
+      } else if (side === '-z') {
+        bl = [bottomHalf, bottomY, -bottomRadius];
+        br = [-bottomHalf, bottomY, -bottomRadius];
+        tr = [-topHalf, topY, -topRadius];
+        tl = [topHalf, topY, -topRadius];
+        hint = [0, -slope, -1];
+      } else if (side === '+x') {
+        bl = [bottomRadius, bottomY, bottomHalf];
+        br = [bottomRadius, bottomY, -bottomHalf];
+        tr = [topRadius, topY, -topHalf];
+        tl = [topRadius, topY, topHalf];
+        hint = [1, -slope, 0];
+      } else {
+        bl = [-bottomRadius, bottomY, -bottomHalf];
+        br = [-bottomRadius, bottomY, bottomHalf];
+        tr = [-topRadius, topY, topHalf];
+        tl = [-topRadius, topY, -topHalf];
+        hint = [-1, -slope, 0];
+      }
+      b.quad(bl, br, tr, tl, mat, hint);
+    }
+    addCornerPanels(topHalf, topY, bottomY, topRadius, bottomRadius, mat, bottomHalf);
+  };
+  const addTier = (width, topY, bottomY, topRadius, bottomRadius, mat) => {
+    const casingWidth = width + 0.30;
+    const casingTopRadius = topRadius - 0.04;
+    const casingBottomRadius = bottomRadius - 0.04;
+    for (const side of sides) {
+      addFace(side, casingWidth, topY, bottomY, casingTopRadius, casingBottomRadius, M.speakerBlack);
+    }
+    addCornerPanels(casingWidth / 2, topY, bottomY, casingTopRadius, casingBottomRadius, M.speakerBlack);
+    for (const side of sides) {
+      addFace(side, width, topY, bottomY, topRadius, bottomRadius, mat);
+    }
+  };
+
+  addTier(11.0, 20.6, 15.2, 6.4, 5.3, M.sbMain);
+  addSideBands(11.3, 6.9, 15.2, 14.6, 5.26, 4.36, M.speakerBlack);
+  addTier(6.6, 14.6, 11.3, 4.4, 3.73, M.sbScore);
+  b.box(0, 20.74, 0, 12.8, 0.28, 12.8, M.speakerBlack);
+  b.box(0, 11.10, 0, 7.5, 0.40, 7.5, M.speakerBlack);
+  const bandPath = roundedRectPath(4.55, 4.93, 0.20, 8, 8, 6);
+  ringStrip(b, bandPath, 14.82, bandPath, 14.98, M.ledRibbon, (m) => [m.x, 0, m.z], null, null, bandPath.totalLen / 4.0);
   for (const s of [-1, 1]) {
-    b.panel(0, videoY, s * (side + 0.01), 9.2, 4.6, 0, s, M.sbMain);
-    b.panel(s * (side + 0.01), videoY, 0, 9.2, 4.6, s, 0, M.sbMain);
-    b.panel(0, 18.78, s * (side + 0.015), 9.6, 0.14, 0, s, M.ledRibbon);
-    b.panel(s * (side + 0.015), 18.78, 0, 9.6, 0.14, s, 0, M.ledRibbon);
-    b.panel(0, scoreY, s * (scoreSide + 0.01), 7.4, 2.6, 0, s, M.sbScore);
-    b.panel(s * (scoreSide + 0.01), scoreY, 0, 7.4, 2.6, s, 0, M.sbScore);
+    b.panel(0, 20.94, s * 6.42, 11.8, 0.12, 0, s, M.ledRibbon, 0, 0, 3.1, 1);
+    b.panel(s * 6.42, 20.94, 0, 11.8, 0.12, s, 0, M.ledRibbon, 0, 0, 3.1, 1);
   }
-  for (const hx of [-3.8, 3.8]) {
-    for (const hz of [-3.8, 3.8]) {
-      b.box(hx, (boardTop + roofY) / 2, hz, 0.18, roofY - boardTop, 0.18, M.trussWhite);
+  for (const hx of [-5.7, 5.7]) {
+    for (const hz of [-5.7, 5.7]) {
+      b.box(hx, (20.88 + roofY) / 2, hz, 0.18, roofY - 20.88, 0.18, M.trussWhite);
     }
   }
-  const ringPath = roundedRectPath(4.0, 4.0, 0.32, 4, 4, 6);
+  const ringPath = roundedRectPath(3.75, 3.75, 0.22, 4, 4, 6);
   ringStrip(b, ringPath, 10.82, offsetPath(ringPath, 0.16), 10.82, M.lampGlow, () => [0, -1, 0]);
   ringStrip(b, offsetPath(ringPath, -0.22), 10.84, offsetPath(ringPath, -0.14), 10.84, M.greenGlow, () => [0, -1, 0]);
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-    const sx = Math.cos(a) * 9.0, sz = Math.sin(a) * 9.0;
-    b.box(sx, 19.0, sz, 0.78, 2.2, 1.0, M.speakerBlack, 0, -a, 0.18);
-    b.box(sx, (roofY + 20.1) / 2, sz, 0.14, roofY - 20.1, 0.14, M.speakerBlack);
-  }
-}
-
-function buildCylinderBoard(b, M, roofY) {
-  const deg = Math.PI / 180;
-  const sbSegs = 32;
-  const sbR = 6.85;
-  cylRing(b, 17.15, 17.95, sbR, sbR, sbSegs, M.sbHeader, true, 4);
-  cylRing(b, 16.10, 17.15, sbR, sbR, sbSegs, M.ledRibbon, true, 1);
-  for (const ang of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
-    cylArcScreen(b, 12.55, 16.10, sbR, ang, 78 * deg, 8, M.sbMain);
-    cylArcScreen(b, 12.55, 16.10, sbR, ang + Math.PI / 4, 12 * deg, 2, M.speakerBlack);
-  }
-  cylRing(b, 11.50, 12.55, sbR, sbR, sbSegs, M.ledRibbon, true, 1);
-  iceDisc(b, 0, 0, 17.95, sbR, sbSegs, M.speakerBlack, false);
-  iceDisc(b, 0, 0, 11.50, sbR, sbSegs, M.speakerBlack, true);
-  cylRing(b, 11.32, 11.50, 5.6, 6.7, sbSegs, M.greenGlow, true, 1);
-  for (const [hx, hz] of [[-3.6, -3.6], [3.6, -3.6], [-3.6, 3.6], [3.6, 3.6]]) {
-    b.box(hx, (roofY + 17.95) / 2, hz, 0.20, roofY - 17.95, 0.20, M.speakerBlack);
-  }
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-    const sx = Math.cos(a) * 9.0, sz = Math.sin(a) * 9.0;
-    b.box(sx, 18.8, sz, 0.72, 2.1, 0.90, M.speakerBlack, 0, -a, 0.18);
-    b.box(sx, (roofY + 19.8) / 2, sz, 0.12, roofY - 19.8, 0.12, M.speakerBlack);
+    const sx = Math.cos(a) * 10.8, sz = Math.sin(a) * 10.8;
+    b.box(sx, 19.15, sz, 0.88, 2.4, 1.05, M.speakerBlack, 0, -a, 0.18);
+    b.box(sx, (roofY + 20.35) / 2, sz, 0.14, roofY - 20.35, 0.14, M.speakerBlack);
   }
 }
 
@@ -236,15 +258,6 @@ export function buildArena() {
       roughness: 0.3,
       doubleSided: true,
       name: 'ledRibbon',
-    }),
-    sbHeader: makeMaterial({
-      color: [1, 1, 1, 1],
-      texture: texIdx('scoreboard_header'),
-      emissiveTexture: texIdx('scoreboard_header'),
-      emissive: [1.3, 1.3, 1.3],
-      roughness: 0.3,
-      doubleSided: true,
-      name: 'sbHeader',
     }),
     sbMain: makeMaterial({
       color: [1, 1, 1, 1],
@@ -623,8 +636,7 @@ export function buildArena() {
     b.panel(bx, topY - banH / 2, bz - 0.015, banW, banH, 0, -1, M.bannerAtlas, col / 8, row / 3, (col + 1) / 8, (row + 1) / 3);
   }
 
-  if (process.env.REA_BOARD === 'cyl') buildCylinderBoard(b, M, roofY);
-  else buildBoxBoard(b, M, roofY);
+  buildBoxBoard(b, M, roofY);
 
   const lights = [
     { name: 'BowlFill_Center', type: 'point', pos: [0, 10.9, 0], color: [1, 0.95, 0.86], intensity: 35, range: 48 },
